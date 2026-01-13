@@ -147,5 +147,13 @@ class Actions:
 | `"hiss:db"` | Default debounce for the hiss command. |
 | `"pop $input"` | Variable pattern that captures any primitive input after "pop" and passes it to the lambda function. |
 
+## Testing
+
+To run the test suite, open the Talon REPL and run:
+
+```python
+actions.user.input_map_test()
+```
+
 ## Dependencies
 none

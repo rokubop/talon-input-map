@@ -484,10 +484,10 @@ def input_map_debounce(time_ms: int, id: str, command: callable):
     input_map_debounce_busy[id] = cron.after(f"{time_ms}ms", lambda: (command(), input_map_debounce_disable(id)))
 
 def input_map_handle(input_name: str):
-    config = actions.user.input_map()
-    if input_map_saved.input_map_user_ref != config:
+    input_map = actions.user.input_map()
+    if input_map_saved.input_map_user_ref != input_map:
         print("init input map")
-        input_map_saved.setup(config)
+        input_map_saved.setup(input_map)
 
     input_map_saved.execute(input_name)
 
