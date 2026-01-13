@@ -1,0 +1,16 @@
+{
+  "name": "input_map",
+  "description": "This is an alternate way to define your input commands in a way that supports combos, throttling, debounce, switching out configs easily without needing to create new modes. Works with parrot noises, foot pedals, face tracking, or any other input source.",
+  "version": "0.4.0",
+  "contributes": {
+    "settings": ["user.input_map_combo_window"],
+    "actions": [
+      "user.input_map",
+      "user.input_map_event_register",
+      "user.input_map_event_unregister",
+      "user.input_map_format_display",
+      "user.input_map_handle"
+    ]
+  },
+  "depends": {}
+}
