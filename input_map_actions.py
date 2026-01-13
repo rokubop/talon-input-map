@@ -7,6 +7,7 @@ from .input_map import (
     input_map_event_register,
     input_map_event_unregister,
 )
+from .input_map_tests import run_tests
 
 mod = Module()
 
@@ -22,7 +23,7 @@ class Actions:
         parrot(hiss):       user.input_map_handle("hiss")
         parrot(hiss:stop):  user.input_map_handle("hiss_stop")
         ```
-        
+
         Or with other input sources:
         ```talon
         key(f13):           user.input_map_handle("pedal_1")
@@ -195,3 +196,9 @@ class Actions:
         Unregister event set by actions.user.input_map_event_register
         """
         input_map_event_unregister(on_input)
+
+    def input_map_test():
+        """
+        Run input_map tests
+        """
+        run_tests()

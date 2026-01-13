@@ -94,7 +94,11 @@ def process_command_categorization(input, action, base_input_map, combo_input_se
     base = base_input_map[input]
 
     if any(other_input.startswith(f"{base} ") and other_input != base for other_input in combo_input_set):
-        delayed_commands[base] = modified_action
+        if ":now" in input:
+            delayed_commands[base] = modified_action
+            immediate_commands[base] = modified_action
+        else:
+            delayed_commands[base] = modified_action
     else:
         immediate_commands[base] = modified_action
 
@@ -318,32 +322,35 @@ class InputMap():
         self.combo_chain = ""
         self.pending_combo = None
 
-    def _execute_immediate_command(self, input: str):
-        combo = self.combo_chain
+    def _execute_action(self, input_name: str):
+        """Execute action for a combo without clearing combo_chain state"""
+        if not self.combo_chain or self.combo_chain not in self.immediate_commands:
+            return
 
         try:
-            if not combo or combo not in self.immediate_commands:
-                return
-
-            action = self.immediate_commands[combo][1]
-            throttled = input_map_throttle_busy.get(input)
+            action = self.immediate_commands[self.combo_chain][1]
+            throttled = input_map_throttle_busy.get(input_name)
             action()
             if not throttled:
-                command = self.immediate_commands[combo][0]
-                input_map_event_trigger(combo, command)
+                command = self.immediate_commands[self.combo_chain][0]
+                input_map_event_trigger(self.combo_chain, command)
 
             # if our combo ends in a continuous input, we should force
             # a throttle so there is clear separation between the combo
             # and a followup input.
-            if combo in self.unique_combos:
-                last_input = combo.split(' ')[-1]
+            if self.combo_chain in self.unique_combos:
+                last_input = self.combo_chain.split(' ')[-1]
                 if last_input in self.base_pairs:
                     input_map_throttle(90, last_input, lambda: None)
                     input_map_throttle(90, f"{last_input}_stop", lambda: None)
         except Exception:
             import traceback
-            print(f"Error executing immediate command '{combo}':")
+            print(f"Error executing action '{self.combo_chain}':")
             traceback.print_exc()
+
+    def _execute_immediate_command(self, input_name: str):
+        try:
+            self._execute_action(input_name)
         finally:
             self.combo_chain = ""
             self.pending_combo = None
@@ -408,38 +415,41 @@ class InputMap():
     def _execute_potential_combo(self):
         self.combo_job = cron.after(self.combo_window, self._delayed_potential_combo)
 
-    def execute(self, input: str):
+    def execute(self, input_name: str):
         global input_map_debounce_busy
 
-        if input not in self.base_inputs:
+        if input_name not in self.base_inputs:
             return
 
-        if input in self.base_pairs:
-            if input_map_debounce_busy.get(f"{input}_stop"):
-                cron.cancel(input_map_debounce_busy[f"{input}_stop"])
-                input_map_debounce_busy[f"{input}_stop"] = False
+        if input_name in self.base_pairs:
+            if input_map_debounce_busy.get(f"{input_name}_stop"):
+                cron.cancel(input_map_debounce_busy[f"{input_name}_stop"])
+                input_map_debounce_busy[f"{input_name}_stop"] = False
                 return
 
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
 
-        self.combo_chain = self.combo_chain + f" {input}" if self.combo_chain else input
+        self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
 
         if self.combo_chain in self.delayed_commands:
+            if self.combo_chain in self.immediate_commands:
+                # possible if we have a ":now" defined
+                self._execute_action(input_name)
             self._prepare_delayed_command()
         elif self.combo_chain in self.immediate_commands:
             if self._could_be_variable_pattern_start(self.combo_chain):
                 self._execute_potential_combo()
             else:
-                self._execute_immediate_command(input)
+                self._execute_immediate_command(input_name)
         elif self.has_variables and self._try_variable_patterns(self.combo_chain, self.immediate_variable_patterns):
             self._execute_immediate_variable_pattern()
         elif self.has_variables and self._try_variable_patterns(self.combo_chain, self.delayed_variable_patterns):
             self._execute_delayed_variable_command()
-        # Fallback to single input commands
-        elif input in self.immediate_commands:
-            self._execute_single_immediate_command(input)
+        # Fallback to single input_name commands
+        elif input_name in self.immediate_commands:
+            self._execute_single_immediate_command(input_name)
         else:
             self._execute_potential_combo()
 
