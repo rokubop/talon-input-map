@@ -1,12 +1,13 @@
 # Input Map
 
-This is an alternate way to define your input commands in a way that supports
-- combos
+This is an alternate way to define your noises, parrot, foot pedals, face gestures, or other input sources in a way that supports:
+- sequential combos
+- concurrent inputs
 - throttling
 - debounce
-- switching out configs easily without needing to create new modes
+- modes for groups of input maps
+- tags for groups of input maps
 - variable patterns with $variable syntax
-- works with parrot noises, foot pedals, face tracking, or any other input source
 
 Combos have a timeout of `300ms`. If you define a combo, then the first input will no longer fire immediately, but only after `300ms`.
 

@@ -230,6 +230,12 @@ def test_input_map_now_modifier():
     assert executed == ["immediate"], f"Failed: got {executed}"
     print("  ✓ :now modifier executes immediately")
 
+    # Now test that combo still works
+    input_map.execute("cluck")
+    assert "combo" in executed, f"Failed: combo didn't execute, got {executed}"
+    assert executed == ["immediate", "combo"], f"Failed: unexpected execution order, got {executed}"
+    print("  ✓ Combo still executes after :now")
+
     print()
 
 def test_input_map_continuous_pairs():
