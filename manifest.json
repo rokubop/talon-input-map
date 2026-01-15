@@ -7,7 +7,7 @@
   "namespace": "user.input_map",
   "github": "https://github.com/rokubop/talon-input-map/",
   "preview": "",
-  "author": "Rokubop",
+  "author": "Roku",
   "tags": [
     "parrot",
     "noise",
@@ -30,10 +30,12 @@
       "user.input_map_mode_cycle",
       "user.input_map_mode_get",
       "user.input_map_mode_set",
-      "user.input_map_test"
+      "user.input_map_tests",
+      "user.input_map_version"
     ]
   },
   "depends": {},
-  "_generator": "talon-manifest-builder",
-  "_generatorVersion": "1.1.0"
+  "_generator": "talon-manifest-tools",
+  "_generatorVersion": "2.1.0",
+  "_generatorRequireVersionAction": true
 }
