@@ -322,11 +322,7 @@ class InputMap():
         self.combo_chain = ""
         self.pending_combo = None
 
-    def _execute_action(self, input_name: str):
-        """Execute action for a combo without clearing combo_chain state"""
-        if not self.combo_chain or self.combo_chain not in self.immediate_commands:
-            return
-
+    def _execute_immediate_command(self, input_name: str, clear_chain: bool = True):
         try:
             action = self.immediate_commands[self.combo_chain][1]
             throttled = input_map_throttle_busy.get(input_name)
@@ -343,17 +339,10 @@ class InputMap():
                 if last_input in self.base_pairs:
                     input_map_throttle(90, last_input, lambda: None)
                     input_map_throttle(90, f"{last_input}_stop", lambda: None)
-        except Exception:
-            import traceback
-            print(f"Error executing action '{self.combo_chain}':")
-            traceback.print_exc()
-
-    def _execute_immediate_command(self, input_name: str):
-        try:
-            self._execute_action(input_name)
         finally:
-            self.combo_chain = ""
-            self.pending_combo = None
+            if clear_chain:
+                self.combo_chain = ""
+                self.pending_combo = None
 
     def _execute_immediate_variable_pattern(self):
         self.combo_chain = ""
@@ -436,7 +425,7 @@ class InputMap():
         if self.combo_chain in self.delayed_commands:
             if self.combo_chain in self.immediate_commands:
                 # possible if we have a ":now" defined
-                self._execute_action(input_name)
+                self._execute_immediate_command(input_name, clear_chain=False)
             self._prepare_delayed_command()
         elif self.combo_chain in self.immediate_commands:
             if self._could_be_variable_pattern_start(self.combo_chain):
