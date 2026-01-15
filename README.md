@@ -88,9 +88,9 @@ class Actions:
         return input_map
 
 # Actions
-actions.user.input_map_set_mode("default")
-actions.user.input_map_cycle_mode()
-actions.user.input_map_get_mode()
+actions.user.input_map_mode_set("default")
+actions.user.input_map_mode_cycle()
+actions.user.input_map_mode_get()
 ```
 
 ## Variable Patterns

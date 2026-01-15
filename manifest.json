@@ -8,21 +8,28 @@
   "github": "https://github.com/rokubop/talon-input-map/",
   "preview": "",
   "author": "Rokubop",
-  "tags": ["parrot", "noise", "foot pedal", "face"],
+  "tags": [
+    "parrot",
+    "noise",
+    "foot pedal",
+    "face"
+  ],
   "dependencies": {},
   "devDependencies": {},
   "contributes": {
-    "settings": ["user.input_map_combo_window"],
+    "settings": [
+      "user.input_map_combo_window"
+    ],
     "actions": [
       "user.input_map",
-      "user.input_map_cycle_mode",
       "user.input_map_event_register",
       "user.input_map_event_unregister",
       "user.input_map_format_display",
       "user.input_map_format_display_dict",
-      "user.input_map_get_mode",
       "user.input_map_handle",
-      "user.input_map_set_mode",
+      "user.input_map_mode_cycle",
+      "user.input_map_mode_get",
+      "user.input_map_mode_set",
       "user.input_map_test"
     ]
   },

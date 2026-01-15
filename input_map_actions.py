@@ -1,8 +1,8 @@
 from talon import Module, actions
 from .input_map import (
-    input_map_cycle_mode,
-    input_map_get_mode,
-    input_map_set_mode,
+    input_map_mode_cycle,
+    input_map_mode_get,
+    input_map_mode_set,
     input_map_handle,
     input_map_event_register,
     input_map_event_unregister,
@@ -76,7 +76,7 @@ class Actions:
         """
         return {}
 
-    def input_map_set_mode(mode: str):
+    def input_map_mode_set(mode: str):
         """
         Change the current mode. Only applicable for input maps that define
         "default" and other modes.
@@ -94,9 +94,9 @@ class Actions:
         actions.user.input_map_mode("other")
         ```
         """
-        input_map_set_mode(mode)
+        input_map_mode_set(mode)
 
-    def input_map_cycle_mode() -> str:
+    def input_map_mode_cycle() -> str:
         """
         Cycle to the next mode. Only works if you have defined
         multiple modes in your `input_map`. Also returns the
@@ -112,13 +112,13 @@ class Actions:
         }
         ```
         """
-        return input_map_cycle_mode()
+        return input_map_mode_cycle()
 
-    def input_map_get_mode() -> str:
+    def input_map_mode_get() -> str:
         """
         Get the current mode
         """
-        return input_map_get_mode()
+        return input_map_mode_get()
 
     def input_map_format_display(
         input_map: dict[str, tuple[str, callable]],
@@ -161,7 +161,7 @@ class Actions:
             input_map = actions.user.input_map()
         if "default" in input_map:
             if mode is None:
-                mode = actions.user.input_map_get_mode()
+                mode = actions.user.input_map_mode_get()
             input_map = input_map.get(mode, input_map["default"])
         display_dict = {}
 
@@ -197,8 +197,8 @@ class Actions:
         """
         input_map_event_unregister(on_input)
 
-    def input_map_test():
+    def input_map_tests():
         """
-        Run input_map tests
+        Run this directly in talon REPL: `actions.user.input_map_tests()`
         """
         run_tests()

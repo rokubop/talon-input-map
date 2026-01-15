@@ -498,10 +498,10 @@ def input_map_event_trigger(input: str, command: str):
     for on_input_subscriber in event_subscribers:
         on_input_subscriber(input, command)
 
-def input_map_get_mode() -> str:
+def input_map_mode_get() -> str:
     return input_map_saved.current_mode
 
-def input_map_set_mode(mode: str):
+def input_map_mode_set(mode: str):
     config = actions.user.input_map()
     if mode in config:
         # probably need to build a queue for this instead
@@ -509,15 +509,15 @@ def input_map_set_mode(mode: str):
     else:
         raise ValueError(f"Mode '{mode}' not found in input_map")
 
-def input_map_cycle_mode() -> str:
+def input_map_mode_cycle() -> str:
     config = actions.user.input_map()
     modes = list(config.keys())
-    current_mode = input_map_get_mode()
+    current_mode = input_map_mode_get()
     if current_mode in modes:
         current_index = modes.index(current_mode)
         next_index = (current_index + 1) % len(modes)
         next_mode = modes[next_index]
-        input_map_set_mode(next_mode)
+        input_map_mode_set(next_mode)
         return next_mode
     else:
         raise ValueError(f"Mode '{current_mode}' not found in input_map")
