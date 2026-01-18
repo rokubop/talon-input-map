@@ -323,19 +323,20 @@ class InputMap():
         self.pending_combo = None
 
     def _execute_immediate_command(self, input_name: str, clear_chain: bool = True):
+        combo_chain = self.combo_chain
         try:
-            action = self.immediate_commands[self.combo_chain][1]
+            action = self.immediate_commands[combo_chain][1]
             throttled = input_map_throttle_busy.get(input_name)
             action()
             if not throttled:
-                command = self.immediate_commands[self.combo_chain][0]
-                input_map_event_trigger(self.combo_chain, command)
+                command = self.immediate_commands[combo_chain][0]
+                input_map_event_trigger(combo_chain, command)
 
             # if our combo ends in a continuous input, we should force
             # a throttle so there is clear separation between the combo
             # and a followup input.
-            if self.combo_chain in self.unique_combos:
-                last_input = self.combo_chain.split(' ')[-1]
+            if combo_chain in self.unique_combos:
+                last_input = combo_chain.split(' ')[-1]
                 if last_input in self.base_pairs:
                     input_map_throttle(90, last_input, lambda: None)
                     input_map_throttle(90, f"{last_input}_stop", lambda: None)

@@ -1,5 +1,8 @@
 # Input Map
 
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
+![Status](https://img.shields.io/badge/status-preview-orange)
+
 This is an alternate way to define your noises, parrot, foot pedals, face gestures, or other input sources in a way that supports:
 - sequential combos
 - concurrent inputs
@@ -10,6 +13,20 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - variable patterns with $variable syntax
 
 Combos have a timeout of `300ms`. If you define a combo, then the first input will no longer fire immediately, but only after `300ms`.
+
+## Installation
+
+Clone this repo into your [Talon](https://talonvoice.com/) user directory:
+
+```sh
+# mac and linux
+cd ~/.talon/user
+
+# windows
+cd ~/AppData/Roaming/talon/user
+
+git clone https://github.com/rokubop/talon-input-map/
+```
 
 ## Example with Parrot
 
