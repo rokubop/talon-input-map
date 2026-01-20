@@ -1,4 +1,4 @@
-from talon import cron, actions
+from talon import actions
 from .input_map import (
     get_base_input,
     extract_variables,
@@ -8,6 +8,12 @@ from .input_map import (
     validate_variable_action,
     InputMap,
 )
+
+# To run the test suite, open the Talon REPL and run:
+#
+# ```python
+# actions.user.input_map_test()
+# ```
 
 def test_get_base_input():
     print("Testing get_base_input...")

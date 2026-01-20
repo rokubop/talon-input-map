@@ -1,6 +1,6 @@
 # Input Map
 
-![Version](https://img.shields.io/badge/version-0.5.0-blue)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
 ![Status](https://img.shields.io/badge/status-preview-orange)
 
 This is an alternate way to define your noises, parrot, foot pedals, face gestures, or other input sources in a way that supports:
