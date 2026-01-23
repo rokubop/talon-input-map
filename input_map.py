@@ -269,13 +269,14 @@ class InputMap():
             return
         # Store pending_combo locally to avoid race condition if action() triggers another event
         pending = self.pending_combo
-        action = self.delayed_commands[pending][1]
+        action_tuple = self.delayed_commands[pending]
+        command = action_tuple[0]
+        action_func = action_tuple[1]
         throttled = input_map_throttle_busy.get(pending)
         self.combo_chain = ""
         self.pending_combo = None
-        action()
+        action_func()
         if not throttled:
-            command = self.delayed_commands[pending][0]
             input_map_event_trigger(pending, command)
 
     def _delayed_potential_combo(self):
@@ -324,12 +325,13 @@ class InputMap():
 
     def _execute_immediate_command(self, input_name: str, clear_chain: bool = True):
         combo_chain = self.combo_chain
+        action_tuple = self.immediate_commands[combo_chain]
+        command = action_tuple[0]
+        action_func = action_tuple[1]
         try:
-            action = self.immediate_commands[combo_chain][1]
             throttled = input_map_throttle_busy.get(input_name)
-            action()
+            action_func()
             if not throttled:
-                command = self.immediate_commands[combo_chain][0]
                 input_map_event_trigger(combo_chain, command)
 
             # if our combo ends in a continuous input, we should force
@@ -353,14 +355,15 @@ class InputMap():
         if self.pending_combo:
             self._delayed_combo_execute()
             actions.sleep("20ms")
-        action = self.immediate_commands[input][1]
+        action_tuple = self.immediate_commands[input]
+        command = action_tuple[0]
+        action_func = action_tuple[1]
         throttled = input_map_throttle_busy.get(input)
         # Clear state before executing to prevent race conditions with rapid input
         self.combo_chain = ""
         self.pending_combo = None
-        action()
+        action_func()
         if not throttled:
-            command = self.immediate_commands[input][0]
             input_map_event_trigger(input, command)
 
     def _could_be_variable_pattern_start(self, combo_chain: str) -> bool:
@@ -505,8 +508,7 @@ def input_map_mode_get() -> str:
 def input_map_mode_set(mode: str):
     config = actions.user.input_map()
     if mode in config:
-        # probably need to build a queue for this instead
-        cron.after("30ms", lambda: input_map_saved.setup_mode(mode))
+        input_map_saved.setup_mode(mode)
     else:
         raise ValueError(f"Mode '{mode}' not found in input_map")
 
