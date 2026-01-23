@@ -196,6 +196,8 @@ def categorize_commands(commands):
     for input_pattern, action in variable_commands:
         process_variable_categorization(input_pattern, action, variable_commands, combo_input_set, immediate_variable_patterns, delayed_variable_patterns)
 
+    has_vars = bool(immediate_variable_patterns or delayed_variable_patterns)
+
     return {
         "immediate_commands": immediate_commands,
         "delayed_commands": delayed_commands,
@@ -203,7 +205,8 @@ def categorize_commands(commands):
         "delayed_variable_patterns": delayed_variable_patterns,
         "base_input_set": base_input_set,
         "base_pairs": base_pairs,
-        "unique_combos": unique_combos
+        "unique_combos": unique_combos,
+        "has_variables": has_vars
     }
 
 class InputMap():
@@ -222,6 +225,7 @@ class InputMap():
         self.pending_combo = None
         self.combo_window = "300ms"
         self.unique_combos = set()
+        self._mode_cache = {}
 
     def setup_mode(self, mode):
         if mode:
@@ -237,6 +241,21 @@ class InputMap():
         self.current_mode = mode
         self.combo_chain = ""
         self.pending_combo = None
+
+        if mode in self._mode_cache:
+            cached = self._mode_cache[mode]
+            self.immediate_commands = cached["immediate_commands"]
+            self.delayed_commands = cached["delayed_commands"]
+            self.immediate_variable_patterns = cached["immediate_variable_patterns"]
+            self.delayed_variable_patterns = cached["delayed_variable_patterns"]
+            self.has_variables = cached["has_variables"]
+            self.base_inputs = cached["base_input_set"]
+            self.base_pairs = cached["base_pairs"]
+            self.unique_combos = cached["unique_combos"]
+            combo_window = settings.get("user.input_map_combo_window", 300)
+            self.combo_window = f"{combo_window}ms"
+            return
+
         commands = input_map.get("commands", {}) if "commands" in input_map else input_map
 
         categorized = categorize_commands(commands)
@@ -244,16 +263,19 @@ class InputMap():
         self.delayed_commands = categorized["delayed_commands"]
         self.immediate_variable_patterns = categorized["immediate_variable_patterns"]
         self.delayed_variable_patterns = categorized["delayed_variable_patterns"]
-        self.has_variables = bool(self.immediate_variable_patterns or self.delayed_variable_patterns)
+        self.has_variables = categorized["has_variables"]
         self.base_inputs = categorized["base_input_set"]
         self.base_pairs = categorized["base_pairs"]
         self.unique_combos = categorized["unique_combos"]
+
+        self._mode_cache[mode] = categorized
 
         combo_window = settings.get("user.input_map_combo_window", 300)
         self.combo_window = f"{combo_window}ms"
 
     def setup(self, input_map):
         self.input_map_user_ref = input_map
+        self._mode_cache = {}
         if "default" in input_map:
             self.setup_mode("default")
         else:
