@@ -32,6 +32,44 @@ class Actions:
         """
         input_map_handle(name)
 
+    def input_map_handle_parrot(name: str, power: float, f0: float, f1: float, f2: float):
+        """
+        If you want to filter based on additional parameters from parrot,
+        you can use this instead of `input_map_handle`.
+
+        Example:
+        ```talon
+        parrot(pop):        user.input_map_handle_parrot("pop", power, f0, f1, f2)
+        parrot(hiss):       user.input_map_handle_parrot("hiss", power, f0, f1, f2)
+        parrot(hiss:stop):  user.input_map_handle_parrot("hiss_stop", power, f0, f1, f2)
+        ```
+        """
+        input_map_handle(name, power=power, f0=f0, f1=f1, f2=f2)
+
+    def input_map_handle_xy(name: str, x: float, y: float):
+        """
+        If you want to filter based on additional parameters from gaze XY,
+        you can use this instead of `input_map_handle`.
+
+        Example:
+        ```talon
+        face(gaze_xy):     user.input_map_handle_xy("gaze_xy", x, y)
+        ```
+        """
+        input_map_handle(name, x=x, y=y)
+
+    def input_map_handle_value(name: str, value: bool):
+        """
+        For inputs that have a value like face change
+
+        Example:
+        ```talon
+        face(dimple_left:change):   user.input_map_handle_value("dimple_left", value)
+        ```
+        """
+        input_map_handle(name, value=value)
+
+
     def input_map():
         """
         Define your input map in a ctx here.
