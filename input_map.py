@@ -13,17 +13,17 @@ def get_base_input(input):
     base_inputs = base_combo.split(' ')
     return base_combo.strip(), base_inputs
 
-def get_modified_action(input, action):
+def get_modified_action(input, action, throttle_busy, debounce_busy):
     if ":th" in input:
         match = re.search(r':th_(\d+)', input)
         throttle_amount = int(match.group(1)) if match else 100
         base_input = input.replace(f":th_{throttle_amount}", "")
-        return (action[0], lambda: input_map_throttle(throttle_amount, base_input, action[1]))
+        return (action[0], lambda: input_map_throttle(throttle_amount, base_input, action[1], throttle_busy))
     if ":db" in input:
         match = re.search(r':db_(\d+)', input)
         debounce_amount = int(match.group(1)) if match else 100
         base_input = input.replace(f":db_{debounce_amount}", "")
-        return (action[0], lambda: input_map_debounce(debounce_amount, base_input, action[1]))
+        return (action[0], lambda: input_map_debounce(debounce_amount, base_input, action[1], debounce_busy))
     return action
 
 def has_variables(input_pattern: str) -> bool:
@@ -89,8 +89,8 @@ def execute_variable_action(action: tuple, variables: dict[str, str]):
     except (ValueError, TypeError):
         return lambda_func()
 
-def process_command_categorization(input, action, base_input_map, combo_input_set, immediate_commands, delayed_commands):
-    modified_action = get_modified_action(input, action)
+def process_command_categorization(input, action, base_input_map, combo_input_set, immediate_commands, delayed_commands, throttle_busy, debounce_busy):
+    modified_action = get_modified_action(input, action, throttle_busy, debounce_busy)
     base = base_input_map[input]
 
     if any(other_input.startswith(f"{base} ") and other_input != base for other_input in combo_input_set):
@@ -102,8 +102,8 @@ def process_command_categorization(input, action, base_input_map, combo_input_se
     else:
         immediate_commands[base] = modified_action
 
-def process_variable_categorization(input_pattern, action, variable_commands, combo_input_set, immediate_variable_patterns, delayed_variable_patterns):
-    modified_action = get_modified_action(input_pattern, action)
+def process_variable_categorization(input_pattern, action, variable_commands, combo_input_set, immediate_variable_patterns, delayed_variable_patterns, throttle_busy, debounce_busy):
+    modified_action = get_modified_action(input_pattern, action, throttle_busy, debounce_busy)
     base_pattern = get_base_input(input_pattern)[0]
 
     is_delayed = False
@@ -129,7 +129,7 @@ def process_variable_categorization(input_pattern, action, variable_commands, co
     else:
         immediate_variable_patterns[input_pattern] = modified_action
 
-def categorize_commands(commands):
+def categorize_commands(commands, throttle_busy, debounce_busy):
     immediate_commands = {}
     delayed_commands = {}
     immediate_variable_patterns = {}
@@ -191,10 +191,10 @@ def categorize_commands(commands):
                 base_input_set.add(base_input)
 
     for input, action in active_commands:
-        process_command_categorization(input, action, base_input_map, combo_input_set, immediate_commands, delayed_commands)
+        process_command_categorization(input, action, base_input_map, combo_input_set, immediate_commands, delayed_commands, throttle_busy, debounce_busy)
 
     for input_pattern, action in variable_commands:
-        process_variable_categorization(input_pattern, action, variable_commands, combo_input_set, immediate_variable_patterns, delayed_variable_patterns)
+        process_variable_categorization(input_pattern, action, variable_commands, combo_input_set, immediate_variable_patterns, delayed_variable_patterns, throttle_busy, debounce_busy)
 
     has_vars = bool(immediate_variable_patterns or delayed_variable_patterns)
 
@@ -226,6 +226,8 @@ class InputMap():
         self.combo_window = "300ms"
         self.unique_combos = set()
         self._mode_cache = {}
+        self._throttle_busy = {}
+        self._debounce_busy = {}
 
     def setup_mode(self, mode):
         if mode:
@@ -258,7 +260,7 @@ class InputMap():
 
         commands = input_map.get("commands", {}) if "commands" in input_map else input_map
 
-        categorized = categorize_commands(commands)
+        categorized = categorize_commands(commands, self._throttle_busy, self._debounce_busy)
         self.immediate_commands = categorized["immediate_commands"]
         self.delayed_commands = categorized["delayed_commands"]
         self.immediate_variable_patterns = categorized["immediate_variable_patterns"]
@@ -294,7 +296,7 @@ class InputMap():
         action_tuple = self.delayed_commands[pending]
         command = action_tuple[0]
         action_func = action_tuple[1]
-        throttled = input_map_throttle_busy.get(pending)
+        throttled = self._throttle_busy.get(pending)
         self.combo_chain = ""
         self.pending_combo = None
         action_func()
@@ -309,7 +311,7 @@ class InputMap():
         # maybe needed for variable patterns
         # if self.combo_chain and self.combo_chain in self.immediate_commands:
         #     action = self.immediate_commands[self.combo_chain][1]
-        #     throttled = input_map_throttle_busy.get(self.combo_chain)
+        #     throttled = self._throttle_busy.get(self.combo_chain)
         #     action()
         #     if not throttled:
         #         command = self.immediate_commands[self.combo_chain][0]
@@ -351,7 +353,7 @@ class InputMap():
         command = action_tuple[0]
         action_func = action_tuple[1]
         try:
-            throttled = input_map_throttle_busy.get(input_name)
+            throttled = self._throttle_busy.get(input_name)
             action_func()
             if not throttled:
                 input_map_event_trigger(combo_chain, command)
@@ -362,8 +364,8 @@ class InputMap():
             if combo_chain in self.unique_combos:
                 last_input = combo_chain.split(' ')[-1]
                 if last_input in self.base_pairs:
-                    input_map_throttle(90, last_input, lambda: None)
-                    input_map_throttle(90, f"{last_input}_stop", lambda: None)
+                    input_map_throttle(90, last_input, lambda: None, self._throttle_busy)
+                    input_map_throttle(90, f"{last_input}_stop", lambda: None, self._throttle_busy)
         finally:
             if clear_chain:
                 self.combo_chain = ""
@@ -380,7 +382,7 @@ class InputMap():
         action_tuple = self.immediate_commands[input]
         command = action_tuple[0]
         action_func = action_tuple[1]
-        throttled = input_map_throttle_busy.get(input)
+        throttled = self._throttle_busy.get(input)
         # Clear state before executing to prevent race conditions with rapid input
         self.combo_chain = ""
         self.pending_combo = None
@@ -430,16 +432,33 @@ class InputMap():
     def _execute_potential_combo(self):
         self.combo_job = cron.after(self.combo_window, self._delayed_potential_combo)
 
-    def execute(self, input_name: str):
-        global input_map_debounce_busy
+    def execute(
+        self,
+        input_name: str,
+        power: float = None,
+        f0: float = None,
+        f1: float = None,
+        f2: float = None,
+        x: float = None,
+        y: float = None,
+        value: bool = None
+    ):
+        # Store input context for actions to access
+        self.last_power = power
+        self.last_f0 = f0
+        self.last_f1 = f1
+        self.last_f2 = f2
+        self.last_x = x
+        self.last_y = y
+        self.last_value = value
 
         if input_name not in self.base_inputs:
             return
 
         if input_name in self.base_pairs:
-            if input_map_debounce_busy.get(f"{input_name}_stop"):
-                cron.cancel(input_map_debounce_busy[f"{input_name}_stop"])
-                input_map_debounce_busy[f"{input_name}_stop"] = False
+            if self._debounce_busy.get(f"{input_name}_stop"):
+                cron.cancel(self._debounce_busy[f"{input_name}_stop"])
+                self._debounce_busy[f"{input_name}_stop"] = False
                 return
 
         if self.combo_job:
@@ -471,40 +490,36 @@ class InputMap():
 # todo: try using the user's direct reference instead
 input_map_saved = InputMap()
 
-input_map_throttle_busy = {}
-input_map_debounce_busy = {}
-
-def input_map_throttle_disable(id):
-    global input_map_throttle_busy
-    input_map_throttle_busy[id] = False
-
-def input_map_throttle(time_ms: int, single_input: str, command: callable):
+def input_map_throttle(time_ms: int, single_input: str, command: callable, throttle_busy: dict):
     """Throttle the command once every time_ms"""
-    global input_map_throttle_busy
-    if input_map_throttle_busy.get(single_input):
+    if throttle_busy.get(single_input):
         return
-    input_map_throttle_busy[single_input] = True
+    throttle_busy[single_input] = True
     command()
-    cron.after(f"{time_ms}ms", lambda: input_map_throttle_disable(single_input))
+    cron.after(f"{time_ms}ms", lambda: throttle_busy.__setitem__(single_input, False))
 
-def input_map_debounce_disable(id):
-    global input_map_debounce_busy
-    input_map_debounce_busy[id] = False
-
-def input_map_debounce(time_ms: int, id: str, command: callable):
+def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: dict):
     """Debounce"""
-    global input_map_debounce_busy
-    if input_map_debounce_busy.get(id):
-        cron.cancel(input_map_debounce_busy[id])
-    input_map_debounce_busy[id] = cron.after(f"{time_ms}ms", lambda: (command(), input_map_debounce_disable(id)))
+    if debounce_busy.get(id):
+        cron.cancel(debounce_busy[id])
+    debounce_busy[id] = cron.after(f"{time_ms}ms", lambda: (command(), debounce_busy.__setitem__(id, False)))
 
-def input_map_handle(input_name: str):
+def input_map_handle(
+    input_name: str,
+    power: float = None,
+    f0: float = None,
+    f1: float = None,
+    f2: float = None,
+    x: float = None,
+    y: float = None,
+    value: bool = None
+):
     input_map = actions.user.input_map()
     if input_map_saved.input_map_user_ref != input_map:
         print("init input map")
         input_map_saved.setup(input_map)
 
-    input_map_saved.execute(input_name)
+    input_map_saved.execute(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
 def input_map_event_register(on_input: callable):
     event_subscribers.append(on_input)
@@ -520,9 +535,9 @@ def input_map_event_unregister(on_input: callable):
                 event_subscribers.remove(subscriber)
                 break
 
-def input_map_event_trigger(input: str, command: str):
+def input_map_event_trigger(input: str, label: str):
     for on_input_subscriber in event_subscribers:
-        on_input_subscriber(input, command)
+        on_input_subscriber(input, label)
 
 def input_map_mode_get() -> str:
     return input_map_saved.current_mode

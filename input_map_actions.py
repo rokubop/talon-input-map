@@ -13,7 +13,16 @@ mod = Module()
 
 @mod.action_class
 class Actions:
-    def input_map_handle(name: str):
+    def input_map_handle(
+        name: str,
+        power: float = None,   # parrot(noise) -> power
+        f0: float = None,      # parrot(noise) -> f0
+        f1: float = None,      # parrot(noise) -> f1
+        f2: float = None,      # parrot(noise) -> f2
+        x: float = None,       # face(gaze_xy), gamepad(left_xy:repeat) -> x
+        y: float = None,       # face(gaze_xy), gamepad(left_xy:repeat) -> y
+        value: bool = None     # face(dimple_left:change), gamepad(l2:change) -> value
+    ):
         """
         Input sources should call this in order to use current `input_map`
 
@@ -30,45 +39,7 @@ class Actions:
         key(f14):           user.input_map_handle("pedal_2")
         ```
         """
-        input_map_handle(name)
-
-    def input_map_handle_parrot(name: str, power: float, f0: float, f1: float, f2: float):
-        """
-        If you want to filter based on additional parameters from parrot,
-        you can use this instead of `input_map_handle`.
-
-        Example:
-        ```talon
-        parrot(pop):        user.input_map_handle_parrot("pop", power, f0, f1, f2)
-        parrot(hiss):       user.input_map_handle_parrot("hiss", power, f0, f1, f2)
-        parrot(hiss:stop):  user.input_map_handle_parrot("hiss_stop", power, f0, f1, f2)
-        ```
-        """
-        input_map_handle(name, power=power, f0=f0, f1=f1, f2=f2)
-
-    def input_map_handle_xy(name: str, x: float, y: float):
-        """
-        If you want to filter based on additional parameters from gaze XY,
-        you can use this instead of `input_map_handle`.
-
-        Example:
-        ```talon
-        face(gaze_xy):     user.input_map_handle_xy("gaze_xy", x, y)
-        ```
-        """
-        input_map_handle(name, x=x, y=y)
-
-    def input_map_handle_value(name: str, value: bool):
-        """
-        For inputs that have a value like face change
-
-        Example:
-        ```talon
-        face(dimple_left:change):   user.input_map_handle_value("dimple_left", value)
-        ```
-        """
-        input_map_handle(name, value=value)
-
+        input_map_handle(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
     def input_map():
         """
@@ -158,42 +129,17 @@ class Actions:
         """
         return input_map_mode_get()
 
-    def input_map_format_display(
-        input_map: dict[str, tuple[str, callable]],
-    ) -> tuple[list[str], list[str]]:
-        """
-        Format/prettify into commands/actions
-        ```
-        (cmds, acts) = input_map_format_display(input_map)
-        ```
-        """
-        cmds, acts = [], []
-
-        for command, action_tuple in input_map.items():
-            if isinstance(action_tuple, tuple):
-                if len(action_tuple) == 0:
-                    continue
-                action = action_tuple[0]
-            else:
-                action = action_tuple
-
-            if action == "":
-                continue
-            command = command.split(":")[0]
-            cmds.append(command)
-            acts.append(action)
-
-        return (cmds, acts)
-
-    def input_map_format_display_dict(
+    def input_map_get_legend(
         input_map: dict[str, tuple[str, callable]] = None,
         mode: str = None,
-    ) -> dict[str, callable]:
+    ) -> dict[str, str]:
         """
-        Format/prettify into dictionary of commands/action names
-        ```
-        display_dict = input_map_format_display(input_map)
-        ```
+        Get the legend for an input map.
+
+        Returns {input: label} with modifiers stripped and empty entries filtered.
+
+        - If input_map not provided, uses current active input_map
+        - If mode specified, uses that mode
         """
         if not input_map:
             input_map = actions.user.input_map()
@@ -201,29 +147,29 @@ class Actions:
             if mode is None:
                 mode = actions.user.input_map_mode_get()
             input_map = input_map.get(mode, input_map["default"])
-        display_dict = {}
 
-        for command, action_tuple in input_map.items():
+        legend = {}
+        for input_key, action_tuple in input_map.items():
             if isinstance(action_tuple, tuple):
                 if len(action_tuple) == 0:
                     continue
-                action = action_tuple[0]
+                label = action_tuple[0]
             else:
-                action = action_tuple
+                label = action_tuple
 
-            if action == "":
+            if label == "":
                 continue
-            command = command.split(":")[0]
-            display_dict[command] = action
+            input_key = input_key.split(":")[0]
+            legend[input_key] = label
 
-        return display_dict
+        return legend
 
     def input_map_event_register(on_input: callable):
         """
         Register input event triggered from input_map
         ```py
-        def on_input(input: str, command: str):
-            print(input, command)
+        def on_input(input: str, label: str):
+            print(input, label)
         actions.user.input_map_event_register(on_input)
         ```
         """

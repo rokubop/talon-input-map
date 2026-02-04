@@ -27,6 +27,9 @@
       "user.input_map_format_display",
       "user.input_map_format_display_dict",
       "user.input_map_handle",
+      "user.input_map_handle_parrot",
+      "user.input_map_handle_value",
+      "user.input_map_handle_xy",
       "user.input_map_mode_cycle",
       "user.input_map_mode_get",
       "user.input_map_mode_set",
@@ -35,8 +38,8 @@
     ]
   },
   "depends": {},
-  "_generator": "talon-manifest-generator",
-  "_generatorVersion": "2.0.0",
+  "_generator": "talon-pack",
+  "_generatorVersion": "3.0.0",
   "_generatorRequiresVersionAction": true,
   "_generatorStrictNamespace": true,
   "_generatorFrozenFields": []
