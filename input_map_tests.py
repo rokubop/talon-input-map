@@ -1,12 +1,12 @@
 from talon import actions
-from .input_map import (
+from .input_map import InputMap
+from .input_map_parse import (
     get_base_input,
     extract_variables,
     pattern_to_regex,
     match_variable_pattern,
     has_variables,
     validate_variable_action,
-    InputMap,
 )
 
 # To run the test suite, open the Talon REPL and run:

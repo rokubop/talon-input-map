@@ -1,5 +1,15 @@
 # Plan: Conditional Input Matching
 
+## File Structure
+
+- `input_map.py` — runtime/hot path (InputMap class, execute, throttle/debounce, events)
+- `input_map_parse.py` — parsing/cold path (condition parsing, validation, categorization)
+
+Conditional parsing and validation goes in `input_map_parse.py`.
+Condition evaluation at runtime stays in `input_map.py`.
+
+---
+
 ## Overview
 
 Add support for conditions on input keys based on input context (power, x, y, value, etc.)
