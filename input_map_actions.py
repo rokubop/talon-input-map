@@ -6,6 +6,20 @@ from .input_map import (
     input_map_handle,
     input_map_event_register,
     input_map_event_unregister,
+    input_map_get,
+)
+from .input_map_profile import (
+    profile_register,
+    profile_unregister,
+    profile_list,
+    profile_get,
+    profile_handle,
+    profile_mode_set,
+    profile_mode_get,
+    profile_mode_cycle,
+    profile_get_legend,
+    profile_event_register,
+    profile_event_unregister,
 )
 from .input_map_tests import run_tests
 
@@ -180,6 +194,118 @@ class Actions:
         Unregister event set by actions.user.input_map_event_register
         """
         input_map_event_unregister(on_input)
+
+    def input_map_get(mode: str = None) -> dict:
+        """
+        Get the input map dict for the current or specified mode.
+
+        Example:
+        ```py
+        current_map = actions.user.input_map_get()
+        specific_mode_map = actions.user.input_map_get("combat")
+        ```
+        """
+        return input_map_get(mode)
+
+    # Profile-based input map actions
+
+    def input_map_profile_register(profile: str, input_map: dict):
+        """
+        Register an input map under a profile name.
+
+        Example:
+        ```py
+        my_input_map = {
+            "pop": ("click", lambda: actions.mouse_click(0)),
+        }
+        actions.user.input_map_profile_register("my_profile", my_input_map)
+        ```
+        """
+        profile_register(profile, input_map)
+
+    def input_map_profile_unregister(profile: str):
+        """
+        Remove a profile from the registry.
+        """
+        profile_unregister(profile)
+
+    def input_map_profile_list() -> list[str]:
+        """
+        Return list of registered profile names.
+        """
+        return profile_list()
+
+    def input_map_profile_get(profile: str, mode: str = None) -> dict:
+        """
+        Get input map dict for a profile/mode.
+        """
+        return profile_get(profile, mode)
+
+    def input_map_profile_handle(
+        profile: str,
+        input_name: str,
+        power: float = None,
+        f0: float = None,
+        f1: float = None,
+        f2: float = None,
+        x: float = None,
+        y: float = None,
+        value: bool = None
+    ):
+        """
+        Execute input handling for a specific profile.
+
+        Example:
+        ```talon
+        parrot(pop): user.input_map_profile_handle("my_profile", "pop")
+        ```
+        """
+        profile_handle(profile, input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+
+    def input_map_profile_mode_set(profile: str, mode: str):
+        """
+        Set the mode for a specific profile.
+        """
+        profile_mode_set(profile, mode)
+
+    def input_map_profile_mode_get(profile: str) -> str:
+        """
+        Get the current mode for a specific profile.
+        """
+        return profile_mode_get(profile)
+
+    def input_map_profile_mode_cycle(profile: str) -> str:
+        """
+        Cycle to the next mode for a specific profile.
+        """
+        return profile_mode_cycle(profile)
+
+    def input_map_profile_get_legend(profile: str, mode: str = None) -> dict[str, str]:
+        """
+        Get the legend for a profile's input map.
+
+        Returns {input: label} with modifiers stripped and empty entries filtered.
+        """
+        return profile_get_legend(profile, mode)
+
+    def input_map_profile_event_register(profile: str, on_input: callable):
+        """
+        Register an event callback for a specific profile.
+
+        Example:
+        ```py
+        def on_input(input: str, label: str):
+            print(f"Profile input: {input} -> {label}")
+        actions.user.input_map_profile_event_register("my_profile", on_input)
+        ```
+        """
+        profile_event_register(profile, on_input)
+
+    def input_map_profile_event_unregister(profile: str, on_input: callable):
+        """
+        Unregister an event callback for a specific profile.
+        """
+        profile_event_unregister(profile, on_input)
 
     def input_map_tests():
         """

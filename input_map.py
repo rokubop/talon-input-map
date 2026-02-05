@@ -15,7 +15,7 @@ event_subscribers = []
 mod.setting("input_map_combo_window", type=int, default=300, desc="The time window to wait for a combo to complete")
 
 class InputMap():
-    def __init__(self):
+    def __init__(self, input_map: dict = None, event_trigger: callable = None):
         self.input_map_user_ref = None
         self.current_mode = None
         self.immediate_commands = {}
@@ -33,6 +33,16 @@ class InputMap():
         self._mode_cache = {}
         self._throttle_busy = {}
         self._debounce_busy = {}
+        self._event_trigger = event_trigger
+        if input_map is not None:
+            self.setup(input_map)
+
+    def _trigger_event(self, input: str, label: str):
+        """Trigger event using custom callback if provided, otherwise use global."""
+        if self._event_trigger:
+            self._event_trigger(input, label)
+        else:
+            input_map_event_trigger(input, label)
 
     def setup_mode(self, mode):
         if mode:
@@ -106,7 +116,7 @@ class InputMap():
         self.pending_combo = None
         action_func()
         if not throttled:
-            input_map_event_trigger(pending, command)
+            self._trigger_event(pending, command)
 
     def _delayed_potential_combo(self):
         if self.combo_job:
@@ -131,7 +141,7 @@ class InputMap():
             if variables is not None:
                 execute_variable_action(action, variables)
                 command = action[0]
-                input_map_event_trigger(pattern, command)
+                self._trigger_event(pattern, command)
                 return True
         return False
 
@@ -161,7 +171,7 @@ class InputMap():
             throttled = self._throttle_busy.get(input_name)
             action_func()
             if not throttled:
-                input_map_event_trigger(combo_chain, command)
+                self._trigger_event(combo_chain, command)
 
             # if our combo ends in a continuous input, we should force
             # a throttle so there is clear separation between the combo
@@ -193,7 +203,7 @@ class InputMap():
         self.pending_combo = None
         action_func()
         if not throttled:
-            input_map_event_trigger(input, command)
+            self._trigger_event(input, command)
 
     def _could_be_variable_pattern_start(self, combo_chain: str) -> bool:
         """Check if the current combo chain could be the start of a variable pattern"""
@@ -366,3 +376,12 @@ def input_map_mode_cycle() -> str:
         return next_mode
     else:
         raise ValueError(f"Mode '{current_mode}' not found in input_map")
+
+def input_map_get(mode: str = None) -> dict:
+    """Get the input map dict for the current or specified mode."""
+    input_map = actions.user.input_map()
+    if mode:
+        if mode in input_map:
+            return input_map[mode]
+        raise ValueError(f"Mode '{mode}' not found in input_map")
+    return input_map
