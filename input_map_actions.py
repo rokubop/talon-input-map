@@ -27,33 +27,54 @@ mod = Module()
 
 @mod.action_class
 class Actions:
-    def input_map_handle(
-        name: str,
-        power: float = None,   # parrot(noise) -> power
-        f0: float = None,      # parrot(noise) -> f0
-        f1: float = None,      # parrot(noise) -> f1
-        f2: float = None,      # parrot(noise) -> f2
-        x: float = None,       # face(gaze_xy), gamepad(left_xy:repeat) -> x
-        y: float = None,       # face(gaze_xy), gamepad(left_xy:repeat) -> y
-        value: bool = None     # face(dimple_left:change), gamepad(l2:change) -> value
-    ):
+    def input_map_handle(name: str):
         """
-        Input sources should call this in order to use current `input_map`
+        Handle a basic input with no extra data.
 
         Example:
         ```talon
         parrot(pop):        user.input_map_handle("pop")
         parrot(hiss):       user.input_map_handle("hiss")
         parrot(hiss:stop):  user.input_map_handle("hiss_stop")
-        ```
-
-        Or with other input sources:
-        ```talon
         key(f13):           user.input_map_handle("pedal_1")
-        key(f14):           user.input_map_handle("pedal_2")
         ```
         """
-        input_map_handle(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+        input_map_handle(name)
+
+    def input_map_handle_parrot(name: str, power: float, f0: float, f1: float, f2: float):
+        """
+        Handle a parrot input with frequency data.
+
+        Example:
+        ```talon
+        parrot(pop):        user.input_map_handle_parrot("pop", power, f0, f1, f2)
+        ```
+        """
+        input_map_handle(name, power=power, f0=f0, f1=f1, f2=f2)
+
+    def input_map_handle_xy(name: str, x: float, y: float):
+        """
+        Handle an xy input (gaze, gamepad stick).
+
+        Example:
+        ```talon
+        face(gaze_xy):           user.input_map_handle_xy("gaze", gaze_x, gaze_y)
+        gamepad(left_xy:repeat): user.input_map_handle_xy("left_stick", left_x, left_y)
+        ```
+        """
+        input_map_handle(name, x=x, y=y)
+
+    def input_map_handle_value(name: str, value: bool):
+        """
+        Handle a boolean change input (face feature, gamepad trigger).
+
+        Example:
+        ```talon
+        face(dimple_left:change): user.input_map_handle_value("dimple_left", value)
+        gamepad(l2:change):       user.input_map_handle_value("l2", value)
+        ```
+        """
+        input_map_handle(name, value=value)
 
     def input_map():
         """
@@ -241,26 +262,49 @@ class Actions:
         """
         return profile_get(profile, mode)
 
-    def input_map_profile_handle(
-        profile: str,
-        input_name: str,
-        power: float = None,
-        f0: float = None,
-        f1: float = None,
-        f2: float = None,
-        x: float = None,
-        y: float = None,
-        value: bool = None
-    ):
+    def input_map_profile_handle(profile: str, input_name: str):
         """
-        Execute input handling for a specific profile.
+        Handle a basic input for a specific profile.
 
         Example:
         ```talon
         parrot(pop): user.input_map_profile_handle("my_profile", "pop")
         ```
         """
-        profile_handle(profile, input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+        profile_handle(profile, input_name)
+
+    def input_map_profile_handle_parrot(profile: str, input_name: str, power: float, f0: float, f1: float, f2: float):
+        """
+        Handle a parrot input with frequency data for a specific profile.
+
+        Example:
+        ```talon
+        parrot(pop): user.input_map_profile_handle_parrot("my_profile", "pop", power, f0, f1, f2)
+        ```
+        """
+        profile_handle(profile, input_name, power=power, f0=f0, f1=f1, f2=f2)
+
+    def input_map_profile_handle_xy(profile: str, input_name: str, x: float, y: float):
+        """
+        Handle an xy input for a specific profile.
+
+        Example:
+        ```talon
+        face(gaze_xy): user.input_map_profile_handle_xy("my_profile", "gaze", gaze_x, gaze_y)
+        ```
+        """
+        profile_handle(profile, input_name, x=x, y=y)
+
+    def input_map_profile_handle_value(profile: str, input_name: str, value: bool):
+        """
+        Handle a boolean change input for a specific profile.
+
+        Example:
+        ```talon
+        face(dimple_left:change): user.input_map_profile_handle_value("my_profile", "dimple_left", value)
+        ```
+        """
+        profile_handle(profile, input_name, value=value)
 
     def input_map_profile_mode_set(profile: str, mode: str):
         """
