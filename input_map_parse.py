@@ -5,6 +5,73 @@ This module handles setup-time processing (cold path).
 import re
 import inspect
 
+CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
+
+def parse_condition(segment: str):
+    """Parse a single segment like 'power>10' into ('power', '>', 10.0), or None if not a condition."""
+    match = CONDITION_PATTERN.match(segment)
+    if match:
+        return (match.group(1), match.group(2), float(match.group(3)))
+    return None
+
+def extract_conditions(input_key: str):
+    """Split 'pop:power>10:db_100' into ('pop:db_100', [('power', '>', 10.0)])."""
+    parts = input_key.split(':')
+    conditions = []
+    non_condition_parts = []
+    for part in parts:
+        parsed = parse_condition(part)
+        if parsed:
+            conditions.append(parsed)
+        else:
+            non_condition_parts.append(part)
+    cleaned_key = ':'.join(non_condition_parts)
+    return cleaned_key, conditions
+
+def has_conditions(input_key: str) -> bool:
+    """Quick check if an input key contains condition segments."""
+    parts = input_key.split(':')
+    for part in parts:
+        if parse_condition(part) is not None:
+            return True
+    return False
+
+def validate_conditions_no_overlap(conditional_entries: dict):
+    """Error on duplicate condition sets for same base input."""
+    for base_key, entries in conditional_entries.items():
+        seen = []
+        for conditions, _ in entries:
+            cond_set = frozenset(conditions)
+            if cond_set in seen:
+                raise ValueError(f"Duplicate condition set for '{base_key}': {conditions}")
+            seen.append(cond_set)
+
+def evaluate_conditions(conditions: list, context: dict) -> bool:
+    """Evaluate all conditions against context. Returns False if any context value is None."""
+    for var, op, threshold in conditions:
+        val = context.get(var)
+        if val is None:
+            return False
+        if op == '>':
+            if not (val > threshold):
+                return False
+        elif op == '<':
+            if not (val < threshold):
+                return False
+        elif op == '>=':
+            if not (val >= threshold):
+                return False
+        elif op == '<=':
+            if not (val <= threshold):
+                return False
+        elif op == '==':
+            if not (val == threshold):
+                return False
+        elif op == '!=':
+            if not (val != threshold):
+                return False
+    return True
+
 def get_base_input(input):
     """The part before colon e.g. 'pop' in 'pop:db_170'"""
     base_combo = input.split(':')[0]
@@ -130,11 +197,22 @@ def process_variable_categorization(input_pattern, action, variable_commands, co
     else:
         immediate_variable_patterns[input_pattern] = modified_action
 
+def process_conditional_categorization(input, action, conditions, base_input_map, combo_input_set, immediate_conditional, delayed_conditional, throttle_busy, debounce_busy):
+    modified_action = get_modified_action(input, action, throttle_busy, debounce_busy)
+    base = base_input_map[input]
+
+    if any(other_input.startswith(f"{base} ") and other_input != base for other_input in combo_input_set):
+        delayed_conditional.setdefault(base, []).append((conditions, modified_action))
+    else:
+        immediate_conditional.setdefault(base, []).append((conditions, modified_action))
+
 def categorize_commands(commands, throttle_busy, debounce_busy):
     immediate_commands = {}
     delayed_commands = {}
     immediate_variable_patterns = {}
     delayed_variable_patterns = {}
+    immediate_conditional = {}
+    delayed_conditional = {}
     base_pairs = set()
     combo_input_set = set()
     base_input_set = set()
@@ -142,6 +220,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy):
     base_input_map = {}
     active_commands = []
     variable_commands = []
+    conditional_commands = []
 
     for input, action in commands.items():
         if not input or not isinstance(action, tuple) or len(action) < 2:
@@ -167,6 +246,22 @@ def categorize_commands(commands, throttle_busy, debounce_busy):
                 print(f"Warning: Variable pattern '{input}' has mismatched lambda signature")
                 continue
             variable_commands.append((input, action))
+        elif has_conditions(input):
+            cleaned_key, conditions = extract_conditions(input)
+            base_combo, base_inputs = get_base_input(cleaned_key)
+
+            if "_stop" in cleaned_key and len(base_inputs) == 1:
+                base_pairs.add(base_inputs[0].replace("_stop", ""))
+
+            if len(base_inputs) > 1:
+                unique_combos.add(base_combo)
+
+            for base_input in base_inputs:
+                base_input_set.add(base_input)
+
+            combo_input_set.add(base_combo)
+            base_input_map[cleaned_key] = base_combo
+            conditional_commands.append((cleaned_key, action, conditions))
         else:
             base_combo, base_inputs = get_base_input(input)
 
@@ -197,15 +292,25 @@ def categorize_commands(commands, throttle_busy, debounce_busy):
     for input_pattern, action in variable_commands:
         process_variable_categorization(input_pattern, action, variable_commands, combo_input_set, immediate_variable_patterns, delayed_variable_patterns, throttle_busy, debounce_busy)
 
+    for cleaned_key, action, conditions in conditional_commands:
+        process_conditional_categorization(cleaned_key, action, conditions, base_input_map, combo_input_set, immediate_conditional, delayed_conditional, throttle_busy, debounce_busy)
+
+    validate_conditions_no_overlap(immediate_conditional)
+    validate_conditions_no_overlap(delayed_conditional)
+
     has_vars = bool(immediate_variable_patterns or delayed_variable_patterns)
+    has_conds = bool(immediate_conditional or delayed_conditional)
 
     return {
         "immediate_commands": immediate_commands,
         "delayed_commands": delayed_commands,
         "immediate_variable_patterns": immediate_variable_patterns,
         "delayed_variable_patterns": delayed_variable_patterns,
+        "immediate_conditional": immediate_conditional,
+        "delayed_conditional": delayed_conditional,
         "base_input_set": base_input_set,
         "base_pairs": base_pairs,
         "unique_combos": unique_combos,
-        "has_variables": has_vars
+        "has_variables": has_vars,
+        "has_conditions": has_conds,
     }

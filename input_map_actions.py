@@ -116,6 +116,9 @@ class Actions:
         "input:db_100"  - debounce of 100ms (triggered after 100ms of continuous input)
         "input:db"      - default debounce
         "tut $input"    - variable pattern passed to lambda as argument
+        "input:power>10"        - conditional on power value
+        "input:x<500:y<500"     - multiple conditions (AND)
+        "input:power>10:th_100" - conditional with throttle
         ```
         """
         return {}

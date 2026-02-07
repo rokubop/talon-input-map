@@ -6,6 +6,7 @@ from .input_map_parse import (
     categorize_commands,
     match_variable_pattern,
     execute_variable_action,
+    evaluate_conditions,
 )
 
 mod = Module()
@@ -23,6 +24,10 @@ class InputMap():
         self.immediate_variable_patterns = {}
         self.delayed_variable_patterns = {}
         self.has_variables = False
+        self.immediate_conditional = {}
+        self.delayed_conditional = {}
+        self.has_conditions = False
+        self._context = {}
         self.base_pairs = set()
         self.combo_chain = ""
         self.combo_job = None
@@ -66,6 +71,9 @@ class InputMap():
             self.immediate_variable_patterns = cached["immediate_variable_patterns"]
             self.delayed_variable_patterns = cached["delayed_variable_patterns"]
             self.has_variables = cached["has_variables"]
+            self.immediate_conditional = cached["immediate_conditional"]
+            self.delayed_conditional = cached["delayed_conditional"]
+            self.has_conditions = cached["has_conditions"]
             self.base_inputs = cached["base_input_set"]
             self.base_pairs = cached["base_pairs"]
             self.unique_combos = cached["unique_combos"]
@@ -81,6 +89,9 @@ class InputMap():
         self.immediate_variable_patterns = categorized["immediate_variable_patterns"]
         self.delayed_variable_patterns = categorized["delayed_variable_patterns"]
         self.has_variables = categorized["has_variables"]
+        self.immediate_conditional = categorized["immediate_conditional"]
+        self.delayed_conditional = categorized["delayed_conditional"]
+        self.has_conditions = categorized["has_conditions"]
         self.base_inputs = categorized["base_input_set"]
         self.base_pairs = categorized["base_pairs"]
         self.unique_combos = categorized["unique_combos"]
@@ -102,18 +113,23 @@ class InputMap():
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
-        if not self.pending_combo or self.pending_combo not in self.delayed_commands:
+        if not self.pending_combo:
             self.combo_chain = ""
             self.pending_combo = None
             return
         # Store pending_combo locally to avoid race condition if action() triggers another event
         pending = self.pending_combo
+        self.combo_chain = ""
+        self.pending_combo = None
+        # Try conditional first, fall through to unconditional
+        if self.has_conditions and self._try_conditional(pending, self.delayed_conditional):
+            return
+        if pending not in self.delayed_commands:
+            return
         action_tuple = self.delayed_commands[pending]
         command = action_tuple[0]
         action_func = action_tuple[1]
         throttled = self._throttle_busy.get(pending)
-        self.combo_chain = ""
-        self.pending_combo = None
         action_func()
         if not throttled:
             self._trigger_event(pending, command)
@@ -134,6 +150,22 @@ class InputMap():
 
         self.combo_chain = ""
         self.pending_combo = None
+
+    def _try_conditional(self, input_chain: str, conditional_dict: dict) -> bool:
+        """Try conditional entries for input_chain. First match wins. Returns True if matched."""
+        entries = conditional_dict.get(input_chain)
+        if not entries:
+            return False
+        for conditions, action_tuple in entries:
+            if evaluate_conditions(conditions, self._context):
+                command = action_tuple[0]
+                action_func = action_tuple[1]
+                throttled = self._throttle_busy.get(input_chain)
+                action_func()
+                if not throttled:
+                    self._trigger_event(input_chain, command)
+                return True
+        return False
 
     def _try_variable_patterns(self, input_chain: str, pattern_dict: dict) -> bool:
         for pattern, action in pattern_dict.items():
@@ -258,14 +290,8 @@ class InputMap():
         y: float = None,
         value: bool = None
     ):
-        # Store input context for actions to access
-        self.last_power = power
-        self.last_f0 = f0
-        self.last_f1 = f1
-        self.last_f2 = f2
-        self.last_x = x
-        self.last_y = y
-        self.last_value = value
+        # Store input context for actions and condition evaluation
+        self._context = {"power": power, "f0": f0, "f1": f1, "f2": f2, "x": x, "y": y, "value": value}
 
         if input_name not in self.base_inputs:
             return
@@ -282,11 +308,18 @@ class InputMap():
 
         self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
 
-        if self.combo_chain in self.delayed_commands:
+        if self.combo_chain in self.delayed_commands or (self.has_conditions and self.combo_chain in self.delayed_conditional):
             if self.combo_chain in self.immediate_commands:
                 # possible if we have a ":now" defined
                 self._execute_immediate_command(input_name, clear_chain=False)
             self._prepare_delayed_command()
+        elif self.has_conditions and self.combo_chain in self.immediate_conditional:
+            matched = self._try_conditional(self.combo_chain, self.immediate_conditional)
+            if not matched and self.combo_chain in self.immediate_commands:
+                self._execute_immediate_command(input_name)
+            else:
+                self.combo_chain = ""
+                self.pending_combo = None
         elif self.combo_chain in self.immediate_commands:
             if self._could_be_variable_pattern_start(self.combo_chain):
                 self._execute_potential_combo()
@@ -297,6 +330,16 @@ class InputMap():
         elif self.has_variables and self._try_variable_patterns(self.combo_chain, self.delayed_variable_patterns):
             self._execute_delayed_variable_command()
         # Fallback to single input_name commands
+        elif self.has_conditions and input_name in self.immediate_conditional:
+            if self.pending_combo:
+                self._delayed_combo_execute()
+                actions.sleep("20ms")
+            matched = self._try_conditional(input_name, self.immediate_conditional)
+            if not matched and input_name in self.immediate_commands:
+                self._execute_single_immediate_command(input_name)
+            else:
+                self.combo_chain = ""
+                self.pending_combo = None
         elif input_name in self.immediate_commands:
             self._execute_single_immediate_command(input_name)
         else:

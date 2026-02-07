@@ -7,6 +7,9 @@ from .input_map_parse import (
     match_variable_pattern,
     has_variables,
     validate_variable_action,
+    parse_condition,
+    extract_conditions,
+    evaluate_conditions,
 )
 from .input_map_profile import (
     profile_register,
@@ -532,6 +535,206 @@ def test_profile_events():
     profile_unregister("test_events")
     print()
 
+def test_parse_condition():
+    print("Testing parse_condition...")
+
+    result = parse_condition("power>10")
+    assert result == ("power", ">", 10.0), f"Failed: got {result}"
+    print("  ✓ power>10")
+
+    result = parse_condition("x<=500.5")
+    assert result == ("x", "<=", 500.5), f"Failed: got {result}"
+    print("  ✓ x<=500.5")
+
+    result = parse_condition("value==1")
+    assert result == ("value", "==", 1.0), f"Failed: got {result}"
+    print("  ✓ value==1")
+
+    result = parse_condition("f0!=0")
+    assert result == ("f0", "!=", 0.0), f"Failed: got {result}"
+    print("  ✓ f0!=0")
+
+    result = parse_condition("power>-5")
+    assert result == ("power", ">", -5.0), f"Failed: got {result}"
+    print("  ✓ negative threshold")
+
+    # Non-condition segments
+    result = parse_condition("th_100")
+    assert result is None, f"Failed: got {result}"
+    print("  ✓ th_100 returns None")
+
+    result = parse_condition("db_100")
+    assert result is None, f"Failed: got {result}"
+    print("  ✓ db_100 returns None")
+
+    result = parse_condition("pop")
+    assert result is None, f"Failed: got {result}"
+    print("  ✓ pop returns None")
+
+    print()
+
+def test_extract_conditions():
+    print("Testing extract_conditions...")
+
+    cleaned, conds = extract_conditions("pop:power>10")
+    assert cleaned == "pop", f"Failed cleaned: got {cleaned}"
+    assert conds == [("power", ">", 10.0)], f"Failed conds: got {conds}"
+    print("  ✓ pop:power>10")
+
+    cleaned, conds = extract_conditions("pop:power>10:db_100")
+    assert cleaned == "pop:db_100", f"Failed cleaned: got {cleaned}"
+    assert conds == [("power", ">", 10.0)], f"Failed conds: got {conds}"
+    print("  ✓ pop:power>10:db_100 preserves modifier")
+
+    cleaned, conds = extract_conditions("gaze:x<500:y<500")
+    assert cleaned == "gaze", f"Failed cleaned: got {cleaned}"
+    assert len(conds) == 2, f"Failed: expected 2 conditions, got {len(conds)}"
+    print("  ✓ multiple conditions")
+
+    cleaned, conds = extract_conditions("pop:th_100")
+    assert cleaned == "pop:th_100", f"Failed cleaned: got {cleaned}"
+    assert conds == [], f"Failed conds: got {conds}"
+    print("  ✓ no conditions returns empty list")
+
+    print()
+
+def test_evaluate_conditions():
+    print("Testing evaluate_conditions...")
+
+    ctx = {"power": 15.0, "f0": 100.0, "f1": 200.0, "f2": 300.0, "x": 400.0, "y": 300.0, "value": 1.0}
+
+    assert evaluate_conditions([("power", ">", 10.0)], ctx) == True
+    print("  ✓ power>10 with power=15")
+
+    assert evaluate_conditions([("power", ">", 20.0)], ctx) == False
+    print("  ✓ power>20 with power=15 fails")
+
+    assert evaluate_conditions([("power", "<=", 15.0)], ctx) == True
+    print("  ✓ power<=15 with power=15")
+
+    assert evaluate_conditions([("x", "<", 500.0), ("y", "<", 500.0)], ctx) == True
+    print("  ✓ multiple conditions AND (both true)")
+
+    assert evaluate_conditions([("x", "<", 500.0), ("y", "<", 100.0)], ctx) == False
+    print("  ✓ multiple conditions AND (one false)")
+
+    # None context value
+    ctx_none = {"power": None, "f0": None, "f1": None, "f2": None, "x": None, "y": None, "value": None}
+    assert evaluate_conditions([("power", ">", 10.0)], ctx_none) == False
+    print("  ✓ None context value returns False")
+
+    assert evaluate_conditions([], ctx) == True
+    print("  ✓ empty conditions returns True")
+
+    print()
+
+def test_input_map_conditional_basic():
+    print("Testing InputMap conditional basic...")
+
+    executed = []
+    test_config = {
+        "pop:power>10": ("loud pop", lambda: executed.append("loud")),
+        "pop:power<=10": ("soft pop", lambda: executed.append("soft")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop", power=15.0)
+    assert executed == ["loud"], f"Failed: got {executed}"
+    print("  ✓ power>10 matches loud")
+
+    executed.clear()
+    input_map.execute("pop", power=5.0)
+    assert executed == ["soft"], f"Failed: got {executed}"
+    print("  ✓ power<=10 matches soft")
+
+    print()
+
+def test_input_map_conditional_no_match():
+    print("Testing InputMap conditional no match...")
+
+    executed = []
+    test_config = {
+        "pop:power>100": ("very loud", lambda: executed.append("very_loud")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop", power=5.0)
+    assert executed == [], f"Failed: should not have executed, got {executed}"
+    print("  ✓ no condition matches, silent no-op")
+
+    print()
+
+def test_input_map_conditional_with_fallback():
+    print("Testing InputMap conditional with fallback...")
+
+    executed = []
+    test_config = {
+        "pop:power>10": ("loud pop", lambda: executed.append("loud")),
+        "pop": ("default pop", lambda: executed.append("default")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # High power should match conditional
+    input_map.execute("pop", power=15.0)
+    assert executed == ["loud"], f"Failed: got {executed}"
+    print("  ✓ conditional matches when condition is true")
+
+    # Low power should fall through to default
+    executed.clear()
+    input_map.execute("pop", power=5.0)
+    assert executed == ["default"], f"Failed: got {executed}"
+    print("  ✓ falls through to unconditional default")
+
+    print()
+
+def test_input_map_conditional_missing_context():
+    print("Testing InputMap conditional missing context...")
+
+    executed = []
+    test_config = {
+        "pop:power>10": ("loud pop", lambda: executed.append("loud")),
+        "pop": ("default pop", lambda: executed.append("default")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # No power provided (None) should fall through to default
+    input_map.execute("pop")
+    assert executed == ["default"], f"Failed: got {executed}"
+    print("  ✓ power=None falls through to default")
+
+    print()
+
+def test_input_map_conditional_multi_condition():
+    print("Testing InputMap conditional multi-condition...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500:y<500": ("top-left", lambda: executed.append("top_left")),
+        "gaze": ("default gaze", lambda: executed.append("default")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("gaze", x=100.0, y=100.0)
+    assert executed == ["top_left"], f"Failed: got {executed}"
+    print("  ✓ x<500 AND y<500 matches")
+
+    executed.clear()
+    input_map.execute("gaze", x=600.0, y=100.0)
+    assert executed == ["default"], f"Failed: got {executed}"
+    print("  ✓ x>=500 falls through to default")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -556,6 +759,18 @@ def run_tests():
     test_input_map_continuous_pairs()
     test_input_map_throttle()
     test_input_map_debounce()
+
+    # Conditional tests (unit)
+    test_parse_condition()
+    test_extract_conditions()
+    test_evaluate_conditions()
+
+    # Conditional tests (integration)
+    test_input_map_conditional_basic()
+    test_input_map_conditional_no_match()
+    test_input_map_conditional_with_fallback()
+    test_input_map_conditional_missing_context()
+    test_input_map_conditional_multi_condition()
 
     # Profile tests
     test_profile_register_unregister()
