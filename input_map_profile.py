@@ -21,8 +21,8 @@ def profile_register(profile: str, input_map: dict):
         return
     _profile_callbacks[profile] = []
     # Create event trigger that uses per-profile callbacks
-    def event_trigger(input: str, label: str):
-        profile_event_trigger(profile, input, label)
+    def event_trigger(event: dict):
+        profile_event_trigger(profile, event)
     instance = InputMap(input_map, event_trigger=event_trigger)
     _profiles[profile] = instance
 
@@ -158,9 +158,9 @@ def profile_event_unregister(profile: str, on_input: callable):
                 break
 
 
-def profile_event_trigger(profile: str, input: str, label: str):
+def profile_event_trigger(profile: str, event: dict):
     """Trigger event callbacks for a specific profile."""
     if profile not in _profile_callbacks:
         return
     for callback in _profile_callbacks[profile]:
-        callback(input, label)
+        callback(event)

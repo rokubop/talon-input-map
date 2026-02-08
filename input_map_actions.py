@@ -206,8 +206,8 @@ class Actions:
         """
         Register input event triggered from input_map
         ```py
-        def on_input(input: str, label: str):
-            print(input, label)
+        def on_input(event: dict):
+            print(event["input"], event["label"])
         actions.user.input_map_event_register(on_input)
         ```
         """
@@ -341,8 +341,8 @@ class Actions:
 
         Example:
         ```py
-        def on_input(input: str, label: str):
-            print(f"Profile input: {input} -> {label}")
+        def on_input(event: dict):
+            print(f"Profile input: {event['input']} -> {event['label']}")
         actions.user.input_map_profile_event_register("my_profile", on_input)
         ```
         """

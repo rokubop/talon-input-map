@@ -50,10 +50,14 @@ class InputMap():
 
     def _trigger_event(self, input: str, label: str):
         """Trigger event using custom callback if provided, otherwise use global."""
+        ctx = self._context
+        ctx["input"] = input
+        ctx["label"] = label
+        ctx["mode"] = self.current_mode
         if self._event_trigger:
-            self._event_trigger(input, label)
+            self._event_trigger(ctx)
         else:
-            input_map_event_trigger(input, label)
+            input_map_event_trigger(ctx)
 
     def setup_mode(self, mode):
         if mode:
@@ -446,9 +450,9 @@ def input_map_event_unregister(on_input: callable):
                 event_subscribers.remove(subscriber)
                 break
 
-def input_map_event_trigger(input: str, label: str):
+def input_map_event_trigger(event: dict):
     for on_input_subscriber in event_subscribers:
-        on_input_subscriber(input, label)
+        on_input_subscriber(event)
 
 def input_map_mode_get() -> str:
     return input_map_saved.current_mode
