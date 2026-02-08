@@ -1,5 +1,6 @@
 ![Version](https://img.shields.io/badge/version-0.6.0-blue)
 ![Status](https://img.shields.io/badge/status-preview-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 # Talon Input Map
 
@@ -11,7 +12,7 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - throttling
 - debounce
 - variable inputs
-- based on power, f0, f1, f2, x, y, or value
+- greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, or `value`
 
 ## Installation
 
@@ -27,242 +28,167 @@ cd ~/AppData/Roaming/talon/user
 git clone https://github.com/rokubop/talon-input-map/
 ```
 
-## Usage
+## Table of Contents
+- [Talon Input Map](#talon-input-map)
+  - [Installation](#installation)
+  - [Table of Contents](#table-of-contents)
+  - [Usage - simple](#usage---simple)
+  - [Usage - all features + modes](#usage---all-features--modes)
+  - [Profiles - multiple input maps at the same time](#profiles---multiple-input-maps-at-the-same-time)
+  - [Options:](#options)
+  - [Testing](#testing)
+  - [Dependencies](#dependencies)
 
-Your input looks like
-```talon
-parrot(pop): user.input_map_handle("pop")
-```
+## Usage - simple
 
-Then in your actions, you define an input map that maps the "pop" input to a command:
-```py
-input_map = {
-    "default": {
+1. Call `user.input_map_handle` from a talon file.
+    ```talon
+    parrot(pop): user.input_map_handle("pop")
+    ```
+
+2. Define your input map in a python file and return it in a context action.
+    ```py
+    input_map = {
         "pop": ("click", lambda: actions.mouse_click(0)),
         "tut": ("cancel", lambda: actions.key("escape")),
         "tut tut": ("close window", lambda: actions.key("alt+f4")),
-    },
-    "repeat": {
-        "pop": ("repeat", lambda: actions.core.repeat_command()),
-        "tut": ("undo", lambda: actions.key("ctrl+z")),
-        "tut tut": ("redo", lambda: actions.key("ctrl+shift+z")),
-    },
-}
-```
+    }
+    ```
 
-And you return that input map in a context:
-```py
-@ctx.action_class("user")
-class Actions:
-    def input_map():
-        return input_map
-```
+3. Pass that input map to the context action:
+    ```py
+    @ctx.action_class("user")
+    class Actions:
+        def input_map():
+            return input_map
+    ```
 
-And you can switch between modes with
-```py
-actions.user.input_map_mode_set("default")
-actions.user.input_map_mode_cycle()
-```
+## Usage - all features + modes
+
+1. Wire up your inputs in a talon file. Use the handler that matches your input source:
+
+    ```talon
+    parrot(pop):                 user.input_map_handle_parrot("pop", power, f0, f1, f2)
+    parrot(cluck):               user.input_map_handle("cluck")
+    parrot(tut):                 user.input_map_handle("tut")
+    parrot(hiss):                user.input_map_handle("hiss")
+    parrot(hiss:stop):           user.input_map_handle("hiss_stop")
+    face(gaze_xy):               user.input_map_handle_xy("gaze", gaze_x, gaze_y)
+    face(dimple_left:change):    user.input_map_handle_value("dimple_left", value)
+    ```
+
+    - `input_map_handle` - generic handler - works for everything
+    - `input_map_handle_parrot` - if you want to use `power`, `f0`, `f1`, `f2`
+    - `input_map_handle_xy` - if you want to use `x` or `y` (for gaze or gamepad sticks)
+    - `input_map_handle_value` - if you want to use `value` (for face features or gamepad triggers using `:change`)
+
+2. Define your input map with modes:
+
+    ```py
+    # my_game.py
+    default_input_map = {
+        "cluck":                 ("attack", lambda: actions.mouse_click(0)),
+        "cluck cluck":           ("hard attack", lambda: actions.mouse_click(1)),
+        "cluck pop":             ("special", lambda: actions.mouse_click(2)),
+        "hiss:th_90":            ("scroll", lambda: actions.user.scroll_down()),
+        "hiss_stop:db_100":      ("", lambda: None),
+        "tut $noise":            ("reverse", lambda noise: actions.user.reverse(noise)),
+        "pop:power>10":          ("loud click", lambda: actions.user.strong_click()),
+        "pop:power<=10":         ("soft click", lambda: actions.mouse_click(0)),
+        "gaze:x<-0.5":           ("look left", lambda x, y: actions.user.aim_left(x, y)),
+        "gaze:x>0.5":            ("look right", lambda x, y: actions.user.aim_right(x, y)),
+        "gaze:else":             ("neutral", lambda: actions.user.aim_reset()),
+        "dimple_left:value>0.5": ("ability on", lambda: actions.user.activate()),
+        "dimple_left:else":      ("ability off", lambda: actions.user.deactivate()),
+    }
+
+    combat_input_map = {
+        **default_input_map,
+        "cluck":                 ("block", lambda: actions.user.game_key("q")),
+        "cluck cluck":           ("parry", lambda: actions.user.game_key("e")),
+        "pop:power>10":          ("heavy strike", lambda: actions.user.heavy_strike()),
+        "pop:power<=10":         ("quick jab", lambda: actions.user.quick_jab()),
+    }
+
+    input_map = {
+        "default": default_input_map,
+        "combat": combat_input_map,
+    }
+
+    @ctx.action_class("user")
+    class Actions:
+        def input_map():
+            return input_map
+    ```
+
+3. Switch modes:
+    ```py
+    actions.user.input_map_mode_set("combat")
+    actions.user.input_map_mode_cycle()
+    ```
+
+Key behaviors:
+- **Combos** - defining `"cluck cluck"` delays single `"cluck"` to wait for a potential second input
+- **Throttle/debounce** - `hiss:th_90` triggers at most once per 90ms, `hiss_stop:db_100` delays the stop by 100ms
+- **Variable pattern** - `"tut $noise"` captures the next input and passes it to the lambda
+- **Conditions without `else`** (pop) - fires every event while the condition is true
+- **Conditions with `else`** (gaze, dimple_left) - fires once on entering a region, suppressed until region changes
+- **Context params** - `lambda x, y:` receives current values at fire time
+- **Continuous pairs** - `"hiss"` / `"hiss_stop"` map start and end of a held noise
+- **Mode spread** - `{**default_input_map, ...}` inherits everything, override only what changes
+
+## Profiles - multiple input maps at the same time
+
+Instead of the context approach, you can use profiles to have multiple input maps active at the same time. Each profile is registered by name and managed independently.
+
+1. Register profiles from a python file:
+    ```py
+    navigation_map = {
+        "pop": ("select", lambda: actions.mouse_click(0)),
+        "hiss:th_100": ("scroll", lambda: actions.user.scroll_down()),
+    }
+    combat_map = {
+        "cluck": ("attack", lambda: actions.mouse_click(0)),
+        "cluck cluck": ("heavy attack", lambda: actions.mouse_click(1)),
+    }
+
+    actions.user.input_map_profile_register("navigation", navigation_map)
+    actions.user.input_map_profile_register("combat", combat_map)
+    ```
+
+2. Route inputs to profiles from a talon file:
+    ```talon
+    parrot(pop):        user.input_map_profile_handle("navigation", "pop")
+    parrot(hiss):       user.input_map_profile_handle("navigation", "hiss")
+    parrot(cluck):      user.input_map_profile_handle("combat", "cluck")
+    ```
+
+3. Profiles support modes, events, and all the same features:
+    ```py
+    actions.user.input_map_profile_mode_set("combat", "defensive")
+    actions.user.input_map_profile_mode_cycle("combat")
+    actions.user.input_map_profile_event_register("combat", on_input)
+    actions.user.input_map_profile_unregister("combat")
+    ```
 
 ## Options:
 | Definition | Description |
 |------------|-------------|
-| `"pop pop"` | Triggers when you combo two pops in a row within `300ms`. If you define this combo, then a regular `"pop"` will be delayed, in order to determine to use the single pop or wait for the combo pop. |
-| `"pop cluck"` | Triggers when you combo pop then cluck within `300ms`. If you use this combo, then a regular `"pop"` will be delayed, in order to determine to use the single pop or wait for the pop+cluck. |
-| `"pop cluck pop"` | Triggers when you combo pop then cluck then pop within `300ms` between each. If you use this combo, then a regular `"pop"` and `"pop cluck"` will be delayed, in order to determine to use the partial command or wait for the full potential combo. |
-| `"pop:th_100"` | Throttles the pop command to only trigger once every 100ms. |
-| `"pop:th"` | Default throttle for the pop command. |
-| `"hiss:db_100"` | Debounces the hiss command to only trigger after 100ms of continuous input. |
-| `"hiss:db"` | Default debounce for the hiss command. |
-| `"pop $input"` | Variable pattern that captures any primitive input after "pop" and passes it to the lambda function. |
-| `"pop:power>10"` | Conditional matching. Executes only when power > 10. Used with `parrot()` and `input_map_handle_parrot`. |
-| `"gaze:x<500:y<500"` | Multiple conditions (AND). Executes only when both x < 500 and y < 500. Used with `face() or gamepad()` and `input_map_handle_xy`. |
-| `"dimple_left:value>0.5"` | Executes only when the dimple_left value exceeds 0.5. Used with `face()` and `input_map_handle_value`. |
-| `"pop:power>10:th_100"` | Conditional with throttle. Combines condition matching with throttling. |
-
-## Example with Parrot
-
-```talon
-parrot(pop):                 user.input_map_handle("pop")
-parrot(hiss):                user.input_map_handle("hiss")
-parrot(hiss:stop):           user.input_map_handle("hiss_stop")
-parrot(shush):               user.input_map_handle("shush")
-parrot(shush:stop):          user.input_map_handle("shush_stop")
-parrot(cluck):               user.input_map_handle("cluck")
-```
-
-## Example with Parrot (with context data)
-
-Use `input_map_handle_parrot` to pass power and frequency data, enabling conditional matching:
-
-```talon
-parrot(pop):                 user.input_map_handle_parrot("pop", power, f0, f1, f2)
-parrot(cluck):               user.input_map_handle_parrot("cluck", power, f0, f1, f2)
-```
-
-## Example with Gaze / XY Inputs
-
-```talon
-face(gaze_xy):               user.input_map_handle_xy("gaze", gaze_x, gaze_y)
-gamepad(left_xy:repeat):     user.input_map_handle_xy("left_stick", left_x, left_y)
-```
-
-## Example with Boolean Inputs
-
-```talon
-face(dimple_left:change):    user.input_map_handle_value("dimple_left", value)
-gamepad(l2:change):          user.input_map_handle_value("l2", value)
-```
-
-## Example with Foot Pedals
-
-```talon
-key(f13):                    user.input_map_handle("pedal_1")
-key(f14):                    user.input_map_handle("pedal_2")
-key(f15):                    user.input_map_handle("pedal_3")
-```
-
-## Configuration
-
-```py
-input_map = {
-    "pop":         ("use", lambda: actions.user.game_key("e")),
-    "cluck":       ("attack", lambda: actions.mouse_click(0)),
-    "cluck cluck": ("hard attack", lambda: actions.mouse_click(1)),
-    "cluck pop":   ("special", lambda: actions.mouse_click(2)),
-    "hiss:db_100": ("jump", lambda: actions.user.game_key("space")),
-    "hiss_stop":   ("", lambda: None),
-    "shush:th_100":("crouch", lambda: actions.user.game_key("c")),
-    "tut":         ("alt", lambda: actions.user.game_key("alt")),
-    "tut ah":      ("turn left", actions.user.game_mouse_move_deg_left_90),
-    "tut oh":      ("turn right", actions.user.game_mouse_move_deg_right_90),
-    "tut guh":     ("turn around", actions.user.game_mouse_move_deg_180),
-}
-
-@ctx.action_class("user")
-class Actions:
-    def input_map():
-        return input_map
-```
-
-## Define different modes:
-```py
-default_config = {
-    "pop":         ("use", lambda: actions.user.game_key("e")),
-    "cluck":       ("attack", lambda: actions.mouse_click(0)),
-    "cluck cluck": ("hard attack", lambda: actions.mouse_click(1)),
-    "cluck pop":   ("special", lambda: actions.mouse_click(2)),
-    "hiss:db_100": ("jump", lambda: actions.user.game_key("space")),
-    "hiss_stop":   ("", lambda: None),
-    "shush:th_100":("crouch", lambda: actions.user.game_key("c")),
-}
-move_config = {
-    **default_config,
-    "pop":         ("left", lambda: actions.user.go_left()),
-    "cluck":       ("right", lambda: actions.user.go_right()),
-}
-combat_config = {
-    **default_config,
-    "cluck":       ("attack", lambda: actions.mouse_click(0)),
-    "cluck cluck": ("hard attack", lambda: actions.mouse_click(1)),
-}
-
-# Final config with each mode
-input_map = {
-    "default": default_config,
-    "move": move_config,
-    "combat": combat_config,
-}
-
-@ctx.action_class("user")
-class Actions:
-    def input_map():
-        return input_map
-
-# Actions
-actions.user.input_map_mode_set("default")
-actions.user.input_map_mode_cycle()
-actions.user.input_map_mode_get()
-```
-
-## Variable Patterns
-Use `$` to capture any primitive input in your pattern:
-
-```py
-input_map = {
-    "tut $input": ("hold modifier", lambda input: actions.user.my_hold_command(input)),
-    # Usage: "tut cluck", "tut hiss", "tut tut" etc.
-}
-```
-
-## Conditional Matching
-Branch on context values like power, frequency, or position. Requires using `input_map_handle_parrot`, `input_map_handle_xy`, or `input_map_handle_value` to pass context data.
-
-```py
-input_map = {
-    # Branch on parrot power
-    "pop:power>10":        ("loud pop", lambda: actions.user.loud_action()),
-    "pop:power<=10":       ("soft pop", lambda: actions.user.soft_action()),
-
-    # Branch on gaze position (multiple conditions = AND)
-    "gaze:x<500:y<500":   ("top-left", lambda: actions.user.gaze_top_left()),
-    "gaze":               ("default gaze", lambda: actions.user.gaze_default()),
-
-    # Combine with throttle/debounce
-    "pop:power>10:th_100": ("loud throttled", lambda: actions.user.loud_throttled()),
-}
-```
-
-Supported context variables: `power`, `f0`, `f1`, `f2`, `x`, `y`, `value`
-
-Supported operators: `>`, `<`, `>=`, `<=`, `==`, `!=`
-
-Rules:
-- Multiple conditions on the same input use AND logic
-- First matching condition wins
-- If no condition matches and an unconditional fallback exists, it executes
-- If no condition matches and no fallback, silent no-op
-- Missing context (e.g. `power=None`) causes the condition to fail
-
-## Throttling
-Throttling is useful when you have a continuous input, but you only want to trigger it once per 100ms for example:
-```py
-"shush:th_100":("jump", lambda: actions.user.game_key("space")),
-```
-
-## Debouncing
-Debouncing on the start of a command means that you need to hold it for 100ms until it will trigger. You might want this if you also want to use normal english commands as well and don't want the input to be triggered immediately.
-```py
-"shush:db_100":("turn left", actions.user.game_mouse_move_continuous_left),
-```
-
-Debouncing at the stop of a command basically just means the stop will be delayed
-```py
-"shush_stop:db_100":("", actions.user.game_mouse_move_continuous_stop),
-```
-
-## Switching config dynamically
-If you don't want to use modes, you can also swap out the input map on the fly, and it will automatically update.
-
-```py
-input_map = default_config
-
-def use_other_config():
-    global input_map
-    input_map = other_config
-
-@ctx.action_class("user")
-class Actions:
-    def input_map():
-        return input_map
-```
+| `"pop cluck"` | Combo. Triggers within `300ms` window. Shorter matches are delayed to wait for longer combos. |
+| `"pop:th_100"` | Throttle. Triggers once per `100`ms. `":th"` for default. |
+| `"hiss:db_100"` | Debounce. Triggers after `100`ms of continuous input. `":db"` for default. |
+| `"pop $input"` | Variable pattern. Captures input and passes it to the lambda. |
+| `"pop:power>10"` | Condition. Fires only when `power > 10`. Variables: `power`, `f0`, `f1`, `f2`, `x`, `y`, `value`. Operators: `>`, `<`, `>=`, `<=`, `==`, `!=`. |
+| `"gaze:x<500:y<500"` | Multiple conditions (AND). |
+| `"gaze:else"` | Edge-triggered. Adding `else` makes conditions fire once per region transition instead of every event. |
+| `"pop:power>10:th_100"` | Modifiers compose. Conditions, throttle, and debounce can be combined. |
 
 ## Testing
 
 To run the test suite, open the Talon REPL and run:
 
 ```python
-actions.user.input_map_test()
+actions.user.input_map_tests()
 ```
 
 ## Dependencies

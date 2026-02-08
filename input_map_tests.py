@@ -6,6 +6,7 @@ from .input_map_parse import (
     pattern_to_regex,
     match_variable_pattern,
     has_variables,
+    has_conditions,
     validate_variable_action,
     parse_condition,
     extract_conditions,
@@ -856,6 +857,227 @@ def test_input_map_context_params_throttle():
 
     print()
 
+def test_has_conditions_else():
+    print("Testing has_conditions with else...")
+
+    assert has_conditions("gaze:else") == True
+    print("  ✓ gaze:else returns True")
+
+    assert has_conditions("gaze:else:db_100") == True
+    print("  ✓ gaze:else:db_100 returns True")
+
+    assert has_conditions("pop") == False
+    print("  ✓ pop without else or condition returns False")
+
+    print()
+
+def test_extract_conditions_else():
+    print("Testing extract_conditions with else...")
+
+    cleaned, conds = extract_conditions("gaze:else")
+    assert cleaned == "gaze", f"Failed cleaned: got {cleaned}"
+    assert conds is None, f"Failed conds: expected None, got {conds}"
+    print("  ✓ gaze:else returns None conditions")
+
+    cleaned, conds = extract_conditions("gaze:else:db_100")
+    assert cleaned == "gaze:db_100", f"Failed cleaned: got {cleaned}"
+    assert conds is None, f"Failed conds: expected None, got {conds}"
+    print("  ✓ gaze:else:db_100 preserves modifier, returns None conditions")
+
+    cleaned, conds = extract_conditions("pop:power>10")
+    assert conds == [("power", ">", 10.0)], f"Failed: non-else still works, got {conds}"
+    print("  ✓ non-else conditions unchanged")
+
+    print()
+
+def test_input_map_edge_triggered_basic():
+    print("Testing InputMap edge-triggered basic...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda: executed.append("left")),
+        "gaze:x>=500": ("look right", lambda: executed.append("right")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Enter left region
+    input_map.execute("gaze", x=100.0)
+    assert executed == ["left"], f"Failed: got {executed}"
+    print("  ✓ First entry into left region fires")
+
+    # Same region — should suppress
+    input_map.execute("gaze", x=200.0)
+    assert executed == ["left"], f"Failed: should suppress, got {executed}"
+    print("  ✓ Same region suppressed")
+
+    # Transition to right region
+    input_map.execute("gaze", x=600.0)
+    assert executed == ["left", "right"], f"Failed: got {executed}"
+    print("  ✓ Transition to right fires")
+
+    # Same right region — suppress
+    input_map.execute("gaze", x=700.0)
+    assert executed == ["left", "right"], f"Failed: should suppress, got {executed}"
+    print("  ✓ Same right region suppressed")
+
+    print()
+
+def test_input_map_edge_triggered_else_fires():
+    print("Testing InputMap edge-triggered else fires...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda: executed.append("left")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Enter left
+    input_map.execute("gaze", x=100.0)
+    assert executed == ["left"], f"Failed: got {executed}"
+    print("  ✓ Enter left region fires")
+
+    # Leave left (no condition matches) — else fires
+    input_map.execute("gaze", x=600.0)
+    assert executed == ["left", "neutral"], f"Failed: got {executed}"
+    print("  ✓ Else fires on leaving region")
+
+    # Stay in else — suppress
+    input_map.execute("gaze", x=700.0)
+    assert executed == ["left", "neutral"], f"Failed: should suppress, got {executed}"
+    print("  ✓ Else suppressed on repeat")
+
+    print()
+
+def test_input_map_edge_triggered_with_context_params():
+    print("Testing InputMap edge-triggered with context params...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda x, y: executed.append(f"left x={x} y={y}")),
+        "gaze:x>=500": ("look right", lambda x, y: executed.append(f"right x={x} y={y}")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("gaze", x=100.0, y=200.0)
+    assert executed == ["left x=100.0 y=200.0"], f"Failed: got {executed}"
+    print("  ✓ Context params passed in edge-triggered mode")
+
+    input_map.execute("gaze", x=600.0, y=300.0)
+    assert executed == ["left x=100.0 y=200.0", "right x=600.0 y=300.0"], f"Failed: got {executed}"
+    print("  ✓ Context params updated on region transition")
+
+    print()
+
+def test_input_map_edge_triggered_mode_reset():
+    print("Testing InputMap edge-triggered mode reset...")
+
+    executed = []
+    test_config = {
+        "default": {
+            "gaze:x<500":  ("look left", lambda: executed.append("left")),
+            "gaze:x>=500": ("look right", lambda: executed.append("right")),
+            "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+        },
+        "other": {
+            "gaze:x<500":  ("look left 2", lambda: executed.append("left2")),
+            "gaze:x>=500": ("look right 2", lambda: executed.append("right2")),
+            "gaze:else":   ("neutral 2", lambda: executed.append("neutral2")),
+        }
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Enter left region
+    input_map.execute("gaze", x=100.0)
+    assert executed == ["left"], f"Failed: got {executed}"
+
+    # Switch mode — should reset active region
+    input_map.setup_mode("other")
+    executed.clear()
+
+    # Same x=100 should fire again because region state was reset
+    input_map.execute("gaze", x=100.0)
+    assert executed == ["left2"], f"Failed: got {executed}"
+    print("  ✓ Mode switch resets active region state")
+
+    print()
+
+def test_input_map_no_else_unchanged():
+    print("Testing InputMap no else unchanged (regression)...")
+
+    executed = []
+    test_config = {
+        "pop:power>10": ("loud pop", lambda: executed.append("loud")),
+        "pop:power<=10": ("soft pop", lambda: executed.append("soft")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Without else, should fire every time (per-event filter mode)
+    input_map.execute("pop", power=15.0)
+    assert executed == ["loud"], f"Failed: got {executed}"
+
+    input_map.execute("pop", power=15.0)
+    assert executed == ["loud", "loud"], f"Failed: should fire again, got {executed}"
+    print("  ✓ Without else, fires every event (per-event filter mode)")
+
+    input_map.execute("pop", power=5.0)
+    assert executed == ["loud", "loud", "soft"], f"Failed: got {executed}"
+    print("  ✓ Condition change also fires")
+
+    print()
+
+def test_input_map_edge_triggered_negative_threshold():
+    print("Testing InputMap edge-triggered with negative thresholds...")
+
+    executed = []
+    test_config = {
+        "gaze:x<-0.5":  ("look left", lambda: executed.append("left")),
+        "gaze:x>0.5":   ("look right", lambda: executed.append("right")),
+        "gaze:else":     ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Dead zone - else fires
+    input_map.execute("gaze", x=0.0)
+    assert executed == ["neutral"], f"Failed: got {executed}"
+    print("  ✓ Dead zone fires else")
+
+    # Enter left region (negative threshold)
+    input_map.execute("gaze", x=-0.8)
+    assert executed == ["neutral", "left"], f"Failed: got {executed}"
+    print("  ✓ Negative threshold x<-0.5 fires")
+
+    # Stay in left - suppress
+    input_map.execute("gaze", x=-0.9)
+    assert executed == ["neutral", "left"], f"Failed: should suppress, got {executed}"
+    print("  ✓ Same negative region suppressed")
+
+    # Back to dead zone
+    input_map.execute("gaze", x=0.1)
+    assert executed == ["neutral", "left", "neutral"], f"Failed: got {executed}"
+    print("  ✓ Return to dead zone fires else")
+
+    # Enter right region
+    input_map.execute("gaze", x=0.8)
+    assert executed == ["neutral", "left", "neutral", "right"], f"Failed: got {executed}"
+    print("  ✓ Positive threshold x>0.5 fires")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -900,6 +1122,18 @@ def run_tests():
     test_input_map_context_params_variable_excluded()
     test_input_map_context_params_conditional()
     test_input_map_context_params_throttle()
+
+    # Edge-triggered tests (unit)
+    test_has_conditions_else()
+    test_extract_conditions_else()
+
+    # Edge-triggered tests (integration)
+    test_input_map_edge_triggered_basic()
+    test_input_map_edge_triggered_else_fires()
+    test_input_map_edge_triggered_with_context_params()
+    test_input_map_edge_triggered_mode_reset()
+    test_input_map_no_else_unchanged()
+    test_input_map_edge_triggered_negative_threshold()
 
     # Profile tests
     test_profile_register_unregister()

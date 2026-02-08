@@ -6,7 +6,7 @@
   "status": "preview",
   "namespace": "user.input_map",
   "github": "https://github.com/rokubop/talon-input-map/",
-  "preview": "",
+  "preview": "https://raw.githubusercontent.com/rokubop/talon-input-map/main/preview.svg",
   "author": "Roku",
   "tags": [
     "parrot",
@@ -14,6 +14,7 @@
     "foot pedal",
     "face"
   ],
+  "license": "MIT",
   "dependencies": {},
   "devDependencies": {},
   "contributes": {
@@ -27,6 +28,9 @@
       "user.input_map_get",
       "user.input_map_get_legend",
       "user.input_map_handle",
+      "user.input_map_handle_parrot",
+      "user.input_map_handle_value",
+      "user.input_map_handle_xy",
       "user.input_map_mode_cycle",
       "user.input_map_mode_get",
       "user.input_map_mode_set",
@@ -35,6 +39,9 @@
       "user.input_map_profile_get",
       "user.input_map_profile_get_legend",
       "user.input_map_profile_handle",
+      "user.input_map_profile_handle_parrot",
+      "user.input_map_profile_handle_value",
+      "user.input_map_profile_handle_xy",
       "user.input_map_profile_list",
       "user.input_map_profile_mode_cycle",
       "user.input_map_profile_mode_get",

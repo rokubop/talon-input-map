@@ -11,6 +11,8 @@ from .input_map_parse import (
 
 mod = Module()
 
+_REGION_ELSE = -1
+
 event_subscribers = []
 
 mod.setting("input_map_combo_window", type=int, default=300, desc="The time window to wait for a combo to complete")
@@ -28,6 +30,10 @@ class InputMap():
         self.delayed_conditional = {}
         self.has_conditions = False
         self._context = {}
+        self._edge_triggered_bases = set()
+        self._edge_else_actions = {}
+        self._active_region = {}
+        self.has_edge_triggered = False
         self.base_pairs = set()
         self.combo_chain = ""
         self.combo_job = None
@@ -74,6 +80,10 @@ class InputMap():
             self.immediate_conditional = cached["immediate_conditional"]
             self.delayed_conditional = cached["delayed_conditional"]
             self.has_conditions = cached["has_conditions"]
+            self._edge_triggered_bases = cached["edge_triggered_bases"]
+            self._edge_else_actions = cached["edge_else_actions"]
+            self.has_edge_triggered = cached["has_edge_triggered"]
+            self._active_region = {}
             self.base_inputs = cached["base_input_set"]
             self.base_pairs = cached["base_pairs"]
             self.unique_combos = cached["unique_combos"]
@@ -92,6 +102,10 @@ class InputMap():
         self.immediate_conditional = categorized["immediate_conditional"]
         self.delayed_conditional = categorized["delayed_conditional"]
         self.has_conditions = categorized["has_conditions"]
+        self._edge_triggered_bases = categorized["edge_triggered_bases"]
+        self._edge_else_actions = categorized["edge_else_actions"]
+        self.has_edge_triggered = categorized["has_edge_triggered"]
+        self._active_region = {}
         self.base_inputs = categorized["base_input_set"]
         self.base_pairs = categorized["base_pairs"]
         self.unique_combos = categorized["unique_combos"]
@@ -122,7 +136,7 @@ class InputMap():
         self.combo_chain = ""
         self.pending_combo = None
         # Try conditional first, fall through to unconditional
-        if self.has_conditions and self._try_conditional(pending, self.delayed_conditional):
+        if self.has_conditions and self._dispatch_conditional(pending, self.delayed_conditional):
             return
         if pending not in self.delayed_commands:
             return
@@ -166,6 +180,45 @@ class InputMap():
                     self._trigger_event(input_chain, command)
                 return True
         return False
+
+    def _try_conditional_edge(self, input_chain: str, conditional_dict: dict) -> bool:
+        """Edge-triggered conditional: only fire when the active region changes."""
+        entries = conditional_dict.get(input_chain)
+        if entries is None:
+            entries = []
+
+        new_region = None
+        matched_action = None
+        for idx, (conditions, action_tuple) in enumerate(entries):
+            if evaluate_conditions(conditions, self._context):
+                new_region = idx
+                matched_action = action_tuple
+                break
+
+        if new_region is None:
+            if input_chain in self._edge_else_actions:
+                new_region = _REGION_ELSE
+                matched_action = self._edge_else_actions[input_chain]
+            else:
+                return False
+
+        prev_region = self._active_region.get(input_chain)
+        if new_region == prev_region:
+            return True  # Consumed but suppressed (same region)
+
+        self._active_region[input_chain] = new_region
+        command = matched_action[0]
+        action_func = matched_action[1]
+        throttled = self._throttle_busy.get(input_chain)
+        action_func()
+        if not throttled:
+            self._trigger_event(input_chain, command)
+        return True
+
+    def _dispatch_conditional(self, input_chain: str, conditional_dict: dict) -> bool:
+        if self.has_edge_triggered and input_chain in self._edge_triggered_bases:
+            return self._try_conditional_edge(input_chain, conditional_dict)
+        return self._try_conditional(input_chain, conditional_dict)
 
     def _try_variable_patterns(self, input_chain: str, pattern_dict: dict) -> bool:
         for pattern, action in pattern_dict.items():
@@ -314,7 +367,7 @@ class InputMap():
                 self._execute_immediate_command(input_name, clear_chain=False)
             self._prepare_delayed_command()
         elif self.has_conditions and self.combo_chain in self.immediate_conditional:
-            matched = self._try_conditional(self.combo_chain, self.immediate_conditional)
+            matched = self._dispatch_conditional(self.combo_chain, self.immediate_conditional)
             if not matched and self.combo_chain in self.immediate_commands:
                 self._execute_immediate_command(input_name)
             else:
@@ -334,7 +387,7 @@ class InputMap():
             if self.pending_combo:
                 self._delayed_combo_execute()
                 actions.sleep("20ms")
-            matched = self._try_conditional(input_name, self.immediate_conditional)
+            matched = self._dispatch_conditional(input_name, self.immediate_conditional)
             if not matched and input_name in self.immediate_commands:
                 self._execute_single_immediate_command(input_name)
             else:

@@ -32,17 +32,24 @@ def parse_condition(segment: str):
     return None
 
 def extract_conditions(input_key: str):
-    """Split 'pop:power>10:db_100' into ('pop:db_100', [('power', '>', 10.0)])."""
+    """Split 'pop:power>10:db_100' into ('pop:db_100', [('power', '>', 10.0)]).
+    For 'gaze:else:db_100', returns ('gaze:db_100', None) where None signals else."""
     parts = input_key.split(':')
     conditions = []
     non_condition_parts = []
+    is_else = False
     for part in parts:
+        if part == "else":
+            is_else = True
+            continue
         parsed = parse_condition(part)
         if parsed:
             conditions.append(parsed)
         else:
             non_condition_parts.append(part)
     cleaned_key = ':'.join(non_condition_parts)
+    if is_else:
+        return cleaned_key, None
     return cleaned_key, conditions
 
 def has_conditions(input_key: str) -> bool:
@@ -50,6 +57,8 @@ def has_conditions(input_key: str) -> bool:
     parts = input_key.split(':')
     for part in parts:
         if parse_condition(part) is not None:
+            return True
+        if part == "else":
             return True
     return False
 
@@ -62,6 +71,22 @@ def validate_conditions_no_overlap(conditional_entries: dict):
             if cond_set in seen:
                 raise ValueError(f"Duplicate condition set for '{base_key}': {conditions}")
             seen.append(cond_set)
+
+def detect_edge_triggered(conditional_dict: dict):
+    """Scan for 'else' markers (conditions=None). Remove them from conditional_dict
+    in place. Returns (edge_bases set, else_actions dict)."""
+    edge_bases = set()
+    else_actions = {}
+    for base_key, entries in list(conditional_dict.items()):
+        remaining = []
+        for conditions, action_tuple in entries:
+            if conditions is None:
+                edge_bases.add(base_key)
+                else_actions[base_key] = action_tuple
+            else:
+                remaining.append((conditions, action_tuple))
+        conditional_dict[base_key] = remaining
+    return edge_bases, else_actions
 
 def evaluate_conditions(conditions: list, context: dict) -> bool:
     """Evaluate all conditions against context. Returns False if any context value is None."""
@@ -335,11 +360,17 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     for cleaned_key, action, conditions in conditional_commands:
         process_conditional_categorization(cleaned_key, action, conditions, base_input_map, combo_input_set, immediate_conditional, delayed_conditional, throttle_busy, debounce_busy)
 
+    imm_edge_bases, imm_else_actions = detect_edge_triggered(immediate_conditional)
+    del_edge_bases, del_else_actions = detect_edge_triggered(delayed_conditional)
+    edge_triggered_bases = imm_edge_bases | del_edge_bases
+    edge_else_actions = {**imm_else_actions, **del_else_actions}
+
     validate_conditions_no_overlap(immediate_conditional)
     validate_conditions_no_overlap(delayed_conditional)
 
     has_vars = bool(immediate_variable_patterns or delayed_variable_patterns)
     has_conds = bool(immediate_conditional or delayed_conditional)
+    has_edge = bool(edge_triggered_bases)
 
     return {
         "immediate_commands": immediate_commands,
@@ -353,4 +384,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         "unique_combos": unique_combos,
         "has_variables": has_vars,
         "has_conditions": has_conds,
+        "edge_triggered_bases": edge_triggered_bases,
+        "edge_else_actions": edge_else_actions,
+        "has_edge_triggered": has_edge,
     }
