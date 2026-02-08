@@ -1289,6 +1289,49 @@ def test_single_handle_tuple():
     _cleanup_single("test_pop_tuple")
     print()
 
+def test_single_handle_expanded():
+    print("Testing single_handle expanded...")
+
+    _cleanup_single("test_pop_exp")
+
+    executed = []
+    pop_map = {
+        "click": {
+            "test_pop_exp": ("click", lambda: executed.append("click")),
+            "test_pop_exp test_pop_exp": ("double click", lambda: executed.append("double")),
+        },
+        "scroll": {
+            "test_pop_exp": ("scroll", lambda: executed.append("scroll")),
+        },
+    }
+
+    # Single input is delayed because of combo
+    single_handle("test_pop_exp", pop_map)
+    assert executed == [], f"Failed: should be delayed, got {executed}"
+    print("  ✓ Single input delayed (combo exists)")
+
+    # After combo window, single fires
+    actions.sleep("310ms")
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Single fires after combo window")
+
+    # Double input triggers combo
+    executed.clear()
+    single_handle("test_pop_exp", pop_map)
+    single_handle("test_pop_exp", pop_map)
+    assert executed == ["double"], f"Failed: got {executed}"
+    print("  ✓ Combo fires immediately")
+
+    # Mode switching works
+    single_mode_set("test_pop_exp", "scroll")
+    executed.clear()
+    single_handle("test_pop_exp", pop_map)
+    assert executed == ["scroll"], f"Failed: got {executed}"
+    print("  ✓ Expanded dict mode switching works")
+
+    _cleanup_single("test_pop_exp")
+    print()
+
 def test_single_mode_switching():
     print("Testing single mode switching...")
 
@@ -1678,6 +1721,7 @@ def run_tests():
     test_normalize_single_map_expanded()
     test_single_handle_basic()
     test_single_handle_tuple()
+    test_single_handle_expanded()
     test_single_mode_switching()
     test_single_mode_cycle()
     test_single_mode_get()

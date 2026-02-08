@@ -186,9 +186,24 @@ A lightweight way to make a single input mode-aware without setting up the full 
 
 1. Define a map where keys are modes and values are actions:
     ```py
+    # Simple — just callables
+    pop_map = {
+        "click":  lambda: actions.mouse_click(0),
+        "repeat": lambda: actions.core.repeat_command(1),
+    }
+
+    # With labels
     pop_map = {
         "click":  ("left click", lambda: actions.mouse_click(0)),
         "repeat": ("repeat",     lambda: actions.core.repeat_command(1)),
+    }
+
+    # Expanded — for combos/modifiers
+    pop_map = {
+        "click": {
+            "pop":     ("click",        lambda: actions.mouse_click(0)),
+            "pop pop": ("double click", lambda: actions.mouse_click(0, 2)),
+        },
     }
     ```
 
