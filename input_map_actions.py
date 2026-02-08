@@ -9,19 +9,19 @@ from .input_map import (
     input_map_event_unregister,
     input_map_get,
 )
-from .input_map_profile import (
-    profile_register,
-    profile_unregister,
-    profile_list,
-    profile_get,
-    profile_handle,
-    profile_mode_set,
-    profile_mode_get,
-    profile_mode_cycle,
-    profile_mode_revert,
-    profile_get_legend,
-    profile_event_register,
-    profile_event_unregister,
+from .input_map_channel import (
+    channel_register,
+    channel_unregister,
+    channel_list,
+    channel_get,
+    channel_handle,
+    channel_mode_set,
+    channel_mode_get,
+    channel_mode_cycle,
+    channel_mode_revert,
+    channel_get_legend,
+    channel_event_register,
+    channel_event_unregister,
 )
 from .input_map_single import (
     single_handle,
@@ -266,153 +266,153 @@ class Actions:
         """
         return input_map_get(mode)
 
-    # Profile-based input map actions
+    # Channel-based input map actions
 
-    def input_map_profile_register(profile: str, input_map: dict):
+    def input_map_channel_register(channel: str, input_map: dict):
         """
-        Register an input map under a profile name.
+        Register an input map under a channel name.
 
         Example:
         ```py
         my_input_map = {
             "pop": ("click", lambda: actions.mouse_click(0)),
         }
-        actions.user.input_map_profile_register("my_profile", my_input_map)
+        actions.user.input_map_channel_register("navigation", my_input_map)
         ```
         """
-        profile_register(profile, input_map)
+        channel_register(channel, input_map)
 
-    def input_map_profile_unregister(profile: str):
+    def input_map_channel_unregister(channel: str):
         """
-        Remove a profile from the registry.
+        Remove a channel from the registry.
         """
-        profile_unregister(profile)
+        channel_unregister(channel)
 
-    def input_map_profile_list() -> list[str]:
+    def input_map_channel_list() -> list[str]:
         """
-        Return list of registered profile names.
+        Return list of registered channel names.
         """
-        return profile_list()
+        return channel_list()
 
-    def input_map_profile_get(profile: str, mode: str = None) -> dict:
+    def input_map_channel_get(channel: str, mode: str = None) -> dict:
         """
-        Get input map dict for a profile/mode.
+        Get input map dict for a channel/mode.
         """
-        return profile_get(profile, mode)
+        return channel_get(channel, mode)
 
-    def input_map_profile_handle(profile: str, input_name: str):
+    def input_map_channel_handle(channel: str, input_name: str):
         """
-        Handle a basic input for a specific profile.
+        Handle a basic input for a specific channel.
 
         Example:
         ```talon
-        parrot(pop): user.input_map_profile_handle("my_profile", "pop")
+        parrot(pop): user.input_map_channel_handle("navigation", "pop")
         ```
         """
-        profile_handle(profile, input_name)
+        channel_handle(channel, input_name)
 
-    def input_map_profile_handle_parrot(profile: str, input_name: str, power: float, f0: float, f1: float, f2: float):
+    def input_map_channel_handle_parrot(channel: str, input_name: str, power: float, f0: float, f1: float, f2: float):
         """
-        Handle a parrot input with frequency data for a specific profile.
+        Handle a parrot input with frequency data for a specific channel.
 
         Example:
         ```talon
-        parrot(pop): user.input_map_profile_handle_parrot("my_profile", "pop", power, f0, f1, f2)
+        parrot(pop): user.input_map_channel_handle_parrot("combat", "pop", power, f0, f1, f2)
         ```
         """
-        profile_handle(profile, input_name, power=power, f0=f0, f1=f1, f2=f2)
+        channel_handle(channel, input_name, power=power, f0=f0, f1=f1, f2=f2)
 
-    def input_map_profile_handle_xy(profile: str, input_name: str, x: float, y: float):
+    def input_map_channel_handle_xy(channel: str, input_name: str, x: float, y: float):
         """
-        Handle an xy input for a specific profile.
+        Handle an xy input for a specific channel.
 
         Example:
         ```talon
-        face(gaze_xy): user.input_map_profile_handle_xy("my_profile", "gaze", gaze_x, gaze_y)
+        face(gaze_xy): user.input_map_channel_handle_xy("navigation", "gaze", gaze_x, gaze_y)
         ```
         """
-        profile_handle(profile, input_name, x=x, y=y)
+        channel_handle(channel, input_name, x=x, y=y)
 
-    def input_map_profile_handle_value(profile: str, input_name: str, value: float):
+    def input_map_channel_handle_value(channel: str, input_name: str, value: float):
         """
-        Handle a value change input for a specific profile.
+        Handle a value change input for a specific channel.
 
         Example:
         ```talon
-        face(dimple_left:change): user.input_map_profile_handle_value("my_profile", "dimple_left", value)
+        face(dimple_left:change): user.input_map_channel_handle_value("combat", "dimple_left", value)
         ```
         """
-        profile_handle(profile, input_name, value=value)
+        channel_handle(channel, input_name, value=value)
 
-    def input_map_profile_handle_bool(profile: str, input_name: str, active: bool):
+    def input_map_channel_handle_bool(channel: str, input_name: str, active: bool):
         """
-        Handle a boolean input for a specific profile.
+        Handle a boolean input for a specific channel.
 
         Maps active=True to "name" and active=False to "name_stop".
 
         Example:
         ```py
-        noise.register("hiss", lambda active: actions.user.input_map_profile_handle_bool("my_profile", "hiss", active))
+        noise.register("hiss", lambda active: actions.user.input_map_channel_handle_bool("navigation", "hiss", active))
         ```
         """
-        profile_handle(profile, input_name if active else f"{input_name}_stop")
+        channel_handle(channel, input_name if active else f"{input_name}_stop")
 
-    def input_map_profile_mode_set(profile: str, mode: str):
+    def input_map_channel_mode_set(channel: str, mode: str):
         """
-        Set the mode for a specific profile.
+        Set the mode for a specific channel.
         """
-        profile_mode_set(profile, mode)
+        channel_mode_set(channel, mode)
 
-    def input_map_profile_mode_get(profile: str) -> str:
+    def input_map_channel_mode_get(channel: str) -> str:
         """
-        Get the current mode for a specific profile.
+        Get the current mode for a specific channel.
         """
-        return profile_mode_get(profile)
+        return channel_mode_get(channel)
 
-    def input_map_profile_mode_cycle(profile: str) -> str:
+    def input_map_channel_mode_cycle(channel: str) -> str:
         """
-        Cycle to the next mode for a specific profile.
+        Cycle to the next mode for a specific channel.
         """
-        return profile_mode_cycle(profile)
+        return channel_mode_cycle(channel)
 
-    def input_map_profile_mode_revert(profile: str) -> str:
+    def input_map_channel_mode_revert(channel: str) -> str:
         """
-        Revert to the previous mode for a specific profile.
+        Revert to the previous mode for a specific channel.
 
         Example:
         ```py
-        actions.user.input_map_profile_mode_set("my_profile", "combat")
-        actions.user.input_map_profile_mode_revert("my_profile")  # back to previous
+        actions.user.input_map_channel_mode_set("combat", "defensive")
+        actions.user.input_map_channel_mode_revert("combat")  # back to previous
         ```
         """
-        return profile_mode_revert(profile)
+        return channel_mode_revert(channel)
 
-    def input_map_profile_get_legend(profile: str, mode: str = None) -> dict[str, str]:
+    def input_map_channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
         """
-        Get the legend for a profile's input map.
+        Get the legend for a channel's input map.
 
         Returns {input: label} with modifiers stripped and empty entries filtered.
         """
-        return profile_get_legend(profile, mode)
+        return channel_get_legend(channel, mode)
 
-    def input_map_profile_event_register(profile: str, on_input: callable):
+    def input_map_channel_event_register(channel: str, on_input: callable):
         """
-        Register an event callback for a specific profile.
+        Register an event callback for a specific channel.
 
         Example:
         ```py
         def on_input(event: dict):
-            print(f"Profile input: {event['input']} -> {event['label']}")
-        actions.user.input_map_profile_event_register("my_profile", on_input)
+            print(f"Channel input: {event['input']} -> {event['label']}")
+        actions.user.input_map_channel_event_register("combat", on_input)
         ```
         """
-        profile_event_register(profile, on_input)
+        channel_event_register(channel, on_input)
 
-    def input_map_profile_event_unregister(profile: str, on_input: callable):
+    def input_map_channel_event_unregister(channel: str, on_input: callable):
         """
-        Unregister an event callback for a specific profile.
+        Unregister an event callback for a specific channel.
         """
-        profile_event_unregister(profile, on_input)
+        channel_event_unregister(channel, on_input)
 
     # Single input map actions
 

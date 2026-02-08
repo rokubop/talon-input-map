@@ -12,21 +12,21 @@ from .input_map_parse import (
     extract_conditions,
     evaluate_conditions,
 )
-from .input_map_profile import (
-    profile_register,
-    profile_unregister,
-    profile_list,
-    profile_get,
-    profile_handle,
-    profile_mode_set,
-    profile_mode_get,
-    profile_mode_cycle,
-    profile_mode_revert,
-    profile_get_legend,
-    profile_event_register,
-    profile_event_unregister,
-    _profiles,
-    _profile_callbacks,
+from .input_map_channel import (
+    channel_register,
+    channel_unregister,
+    channel_list,
+    channel_get,
+    channel_handle,
+    channel_mode_set,
+    channel_mode_get,
+    channel_mode_cycle,
+    channel_mode_revert,
+    channel_get_legend,
+    channel_event_register,
+    channel_event_unregister,
+    _channels,
+    _channel_callbacks,
 )
 from .input_map_single import (
     normalize_single_map,
@@ -356,82 +356,82 @@ def test_input_map_debounce():
 
     print()
 
-def test_profile_register_unregister():
-    print("Testing profile register/unregister...")
+def test_channel_register_unregister():
+    print("Testing channel register/unregister...")
 
-    # Clean up any existing test profile
-    if "test_profile" in _profiles:
-        profile_unregister("test_profile")
+    # Clean up any existing test channel
+    if "test_channel" in _channels:
+        channel_unregister("test_channel")
 
     test_config = {
         "pop": ("action A", lambda: None),
     }
 
     # Register
-    profile_register("test_profile", test_config)
-    assert "test_profile" in profile_list(), f"Failed: profile not in list"
-    print("  ✓ Profile registered and appears in list")
+    channel_register("test_channel", test_config)
+    assert "test_channel" in channel_list(), f"Failed: channel not in list"
+    print("  ✓ Channel registered and appears in list")
 
     # Unregister
-    profile_unregister("test_profile")
-    assert "test_profile" not in profile_list(), f"Failed: profile still in list"
-    print("  ✓ Profile unregistered")
+    channel_unregister("test_channel")
+    assert "test_channel" not in channel_list(), f"Failed: channel still in list"
+    print("  ✓ Channel unregistered")
 
     print()
 
-def test_profile_re_registration():
-    print("Testing profile re-registration warning...")
+def test_channel_re_registration():
+    print("Testing channel re-registration warning...")
 
     # Clean up
-    if "test_reregister" in _profiles:
-        profile_unregister("test_reregister")
+    if "test_reregister" in _channels:
+        channel_unregister("test_reregister")
 
     executed = []
     config1 = {"pop": ("first", lambda: executed.append("first"))}
     config2 = {"pop": ("second", lambda: executed.append("second"))}
 
-    profile_register("test_reregister", config1)
-    profile_register("test_reregister", config2)  # Should warn and keep first
+    channel_register("test_reregister", config1)
+    channel_register("test_reregister", config2)  # Should warn and keep first
 
     # Execute and verify first config is kept
-    profile_handle("test_reregister", "pop")
+    channel_handle("test_reregister", "pop")
     assert executed == ["first"], f"Failed: got {executed}"
-    print("  ✓ Re-registration keeps original profile")
+    print("  ✓ Re-registration keeps original channel")
 
-    profile_unregister("test_reregister")
+    channel_unregister("test_reregister")
     print()
 
-def test_profile_get():
-    print("Testing profile_get...")
+def test_channel_get():
+    print("Testing channel_get...")
 
-    if "test_get" in _profiles:
-        profile_unregister("test_get")
+    if "test_get" in _channels:
+        channel_unregister("test_get")
 
     test_config = {
         "default": {"pop": ("default action", lambda: None)},
         "combat": {"pop": ("combat action", lambda: None)},
     }
 
-    profile_register("test_get", test_config)
+    channel_register("test_get", test_config)
 
     # Get full config
-    full = profile_get("test_get")
+    full = channel_get("test_get")
     assert "default" in full and "combat" in full, f"Failed: got {full}"
     print("  ✓ Get full config")
 
     # Get specific mode
-    combat = profile_get("test_get", "combat")
+    combat = channel_get("test_get", "combat")
     assert "pop" in combat, f"Failed: got {combat}"
     print("  ✓ Get specific mode")
 
-    profile_unregister("test_get")
+    channel_unregister("test_get")
     print()
 
-def test_profile_handle():
-    print("Testing profile_handle...")
+def test_channel_handle():
+    print("Testing channel_handle...")
 
-    if "test_handle" in _profiles:
-        profile_unregister("test_handle")
+    if "test_handle" in _channels:
+        channel_unregister("test_handle")
 
     executed = []
     test_config = {
@@ -439,24 +439,24 @@ def test_profile_handle():
         "cluck": ("action B", lambda: executed.append("B")),
     }
 
-    profile_register("test_handle", test_config)
+    channel_register("test_handle", test_config)
 
-    profile_handle("test_handle", "pop")
+    channel_handle("test_handle", "pop")
     assert executed == ["A"], f"Failed: got {executed}"
-    print("  ✓ Profile handle executes action")
+    print("  ✓ Channel handle executes action")
 
-    profile_handle("test_handle", "cluck")
+    channel_handle("test_handle", "cluck")
     assert executed == ["A", "B"], f"Failed: got {executed}"
-    print("  ✓ Profile handle executes multiple actions")
+    print("  ✓ Channel handle executes multiple actions")
 
-    profile_unregister("test_handle")
+    channel_unregister("test_handle")
     print()
 
-def test_profile_modes():
-    print("Testing profile mode switching...")
+def test_channel_modes():
+    print("Testing channel mode switching...")
 
-    if "test_modes" in _profiles:
-        profile_unregister("test_modes")
+    if "test_modes" in _channels:
+        channel_unregister("test_modes")
 
     executed = []
     test_config = {
@@ -464,39 +464,39 @@ def test_profile_modes():
         "combat": {"pop": ("combat", lambda: executed.append("combat"))},
     }
 
-    profile_register("test_modes", test_config)
+    channel_register("test_modes", test_config)
 
     # Should start in default
-    assert profile_mode_get("test_modes") == "default", f"Failed: not in default mode"
+    assert channel_mode_get("test_modes") == "default", f"Failed: not in default mode"
     print("  ✓ Starts in default mode")
 
-    profile_handle("test_modes", "pop")
+    channel_handle("test_modes", "pop")
     assert executed == ["default"], f"Failed: got {executed}"
     print("  ✓ Executes default mode action")
 
     # Switch to combat
-    profile_mode_set("test_modes", "combat")
-    assert profile_mode_get("test_modes") == "combat", f"Failed: not in combat mode"
+    channel_mode_set("test_modes", "combat")
+    assert channel_mode_get("test_modes") == "combat", f"Failed: not in combat mode"
     print("  ✓ Mode set works")
 
     executed.clear()
-    profile_handle("test_modes", "pop")
+    channel_handle("test_modes", "pop")
     assert executed == ["combat"], f"Failed: got {executed}"
     print("  ✓ Executes combat mode action")
 
     # Cycle back to default
-    next_mode = profile_mode_cycle("test_modes")
+    next_mode = channel_mode_cycle("test_modes")
     assert next_mode == "default", f"Failed: got {next_mode}"
     print("  ✓ Mode cycle works")
 
-    profile_unregister("test_modes")
+    channel_unregister("test_modes")
     print()
 
-def test_profile_get_legend():
-    print("Testing profile_get_legend...")
+def test_channel_get_legend():
+    print("Testing channel_get_legend...")
 
-    if "test_legend" in _profiles:
-        profile_unregister("test_legend")
+    if "test_legend" in _channels:
+        channel_unregister("test_legend")
 
     test_config = {
         "default": {
@@ -506,22 +506,22 @@ def test_profile_get_legend():
         },
     }
 
-    profile_register("test_legend", test_config)
+    channel_register("test_legend", test_config)
 
-    legend = profile_get_legend("test_legend")
+    legend = channel_get_legend("test_legend")
     assert legend.get("pop") == "Click", f"Failed: got {legend}"
     assert legend.get("hiss") == "Scroll", f"Failed: modifier not stripped, got {legend}"
     assert "cluck" not in legend, f"Failed: empty label not filtered, got {legend}"
     print("  ✓ Legend generated correctly")
 
-    profile_unregister("test_legend")
+    channel_unregister("test_legend")
     print()
 
-def test_profile_events():
-    print("Testing profile events...")
+def test_channel_events():
+    print("Testing channel events...")
 
-    if "test_events" in _profiles:
-        profile_unregister("test_events")
+    if "test_events" in _channels:
+        channel_unregister("test_events")
 
     events = []
     def on_input(event: dict):
@@ -531,22 +531,22 @@ def test_profile_events():
         "pop": ("Click", lambda: None),
     }
 
-    profile_register("test_events", test_config)
-    profile_event_register("test_events", on_input)
+    channel_register("test_events", test_config)
+    channel_event_register("test_events", on_input)
 
-    profile_handle("test_events", "pop")
+    channel_handle("test_events", "pop")
     assert len(events) == 1, f"Failed: event not triggered, got {events}"
     assert events[0] == ("pop", "Click"), f"Failed: wrong event data, got {events}"
     print("  ✓ Event callback triggered")
 
     # Unregister and verify no more events
-    profile_event_unregister("test_events", on_input)
+    channel_event_unregister("test_events", on_input)
     events.clear()
-    profile_handle("test_events", "pop")
+    channel_handle("test_events", "pop")
     assert len(events) == 0, f"Failed: event still triggered after unregister, got {events}"
     print("  ✓ Event callback unregistered")
 
-    profile_unregister("test_events")
+    channel_unregister("test_events")
     print()
 
 def test_parse_condition():
@@ -1548,29 +1548,29 @@ def test_mode_revert():
 
     print()
 
-def test_profile_mode_revert():
-    print("Testing profile_mode_revert...")
+def test_channel_mode_revert():
+    print("Testing channel_mode_revert...")
 
-    if "test_revert_p" in _profiles:
-        profile_unregister("test_revert_p")
+    if "test_revert_p" in _channels:
+        channel_unregister("test_revert_p")
 
     test_config = {
         "default": {"pop": ("default", lambda: None)},
         "combat": {"pop": ("combat", lambda: None)},
     }
 
-    profile_register("test_revert_p", test_config)
+    channel_register("test_revert_p", test_config)
 
-    assert profile_mode_get("test_revert_p") == "default"
-    profile_mode_set("test_revert_p", "combat")
-    assert profile_mode_get("test_revert_p") == "combat"
+    assert channel_mode_get("test_revert_p") == "default"
+    channel_mode_set("test_revert_p", "combat")
+    assert channel_mode_get("test_revert_p") == "combat"
 
-    result = profile_mode_revert("test_revert_p")
+    result = channel_mode_revert("test_revert_p")
     assert result == "default", f"Failed: got {result}"
-    assert profile_mode_get("test_revert_p") == "default"
-    print("  ✓ Reverts profile to previous mode")
+    assert channel_mode_get("test_revert_p") == "default"
+    print("  ✓ Reverts channel to previous mode")
 
-    profile_unregister("test_revert_p")
+    channel_unregister("test_revert_p")
     print()
 
 def test_handle_bool_basic():
@@ -1595,11 +1595,11 @@ def test_handle_bool_basic():
 
     print()
 
-def test_handle_bool_profile():
-    print("Testing handle_bool profile...")
+def test_handle_bool_channel():
+    print("Testing handle_bool channel...")
 
-    if "test_bool_p" in _profiles:
-        profile_unregister("test_bool_p")
+    if "test_bool_p" in _channels:
+        channel_unregister("test_bool_p")
 
     executed = []
     test_config = {
@@ -1607,16 +1607,16 @@ def test_handle_bool_profile():
         "hiss_stop": ("stop", lambda: executed.append("stop")),
     }
 
-    profile_register("test_bool_p", test_config)
+    channel_register("test_bool_p", test_config)
 
-    profile_handle("test_bool_p", "hiss")
+    channel_handle("test_bool_p", "hiss")
     assert executed == ["start"], f"Failed: got {executed}"
 
-    profile_handle("test_bool_p", "hiss_stop")
+    channel_handle("test_bool_p", "hiss_stop")
     assert executed == ["start", "stop"], f"Failed: got {executed}"
-    print("  ✓ Profile bool active/stop works")
+    print("  ✓ Channel bool active/stop works")
 
-    profile_unregister("test_bool_p")
+    channel_unregister("test_bool_p")
     print()
 
 def test_handle_bool_single():
@@ -1706,14 +1706,14 @@ def run_tests():
     test_input_map_spread_override_different_modifier()
     test_input_map_spread_override_modes()
 
-    # Profile tests
-    test_profile_register_unregister()
-    test_profile_re_registration()
-    test_profile_get()
-    test_profile_handle()
-    test_profile_modes()
-    test_profile_get_legend()
-    test_profile_events()
+    # Channel tests
+    test_channel_register_unregister()
+    test_channel_re_registration()
+    test_channel_get()
+    test_channel_handle()
+    test_channel_modes()
+    test_channel_get_legend()
+    test_channel_events()
 
     # Single tests
     test_normalize_single_map_simple()
@@ -1733,11 +1733,11 @@ def run_tests():
 
     # Mode revert tests
     test_mode_revert()
-    test_profile_mode_revert()
+    test_channel_mode_revert()
 
     # Bool handler tests
     test_handle_bool_basic()
-    test_handle_bool_profile()
+    test_handle_bool_channel()
     test_handle_bool_single()
 
     print()

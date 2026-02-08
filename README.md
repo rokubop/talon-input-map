@@ -34,7 +34,7 @@ git clone https://github.com/rokubop/talon-input-map/
   - [Table of Contents](#table-of-contents)
   - [Usage - simple](#usage---simple)
   - [Usage - all features + modes](#usage---all-features--modes)
-  - [Profiles - multiple input maps at the same time](#profiles---multiple-input-maps-at-the-same-time)
+  - [Channels - multiple input maps at the same time](#channels---multiple-input-maps-at-the-same-time)
   - [Single - lightweight single input](#single---lightweight-single-input)
   - [Options:](#options)
   - [Testing](#testing)
@@ -145,11 +145,11 @@ Key behaviors:
 - **Continuous pairs** - `"hiss"` / `"hiss_stop"` map start and end of a held noise
 - **Mode spread** - `{**default_input_map, ...}` inherits everything, override only what changes
 
-## Profiles - multiple input maps at the same time
+## Channels - multiple input maps at the same time
 
-Instead of the context approach, you can use profiles to have multiple input maps active at the same time. Each profile is registered by name and managed independently.
+Instead of the context approach, you can use channels to have multiple input maps active at the same time. Each channel is registered by name and processes inputs independently.
 
-1. Register profiles from a python file:
+1. Register channels from a python file:
     ```py
     navigation_map = {
         "pop": ("select", lambda: actions.mouse_click(0)),
@@ -160,29 +160,29 @@ Instead of the context approach, you can use profiles to have multiple input map
         "cluck cluck": ("heavy attack", lambda: actions.mouse_click(1)),
     }
 
-    actions.user.input_map_profile_register("navigation", navigation_map)
-    actions.user.input_map_profile_register("combat", combat_map)
+    actions.user.input_map_channel_register("navigation", navigation_map)
+    actions.user.input_map_channel_register("combat", combat_map)
     ```
 
-2. Route inputs to profiles from a talon file:
+2. Route inputs to channels from a talon file:
     ```talon
-    parrot(pop):        user.input_map_profile_handle("navigation", "pop")
-    parrot(hiss):       user.input_map_profile_handle("navigation", "hiss")
-    parrot(cluck):      user.input_map_profile_handle("combat", "cluck")
+    parrot(pop):        user.input_map_channel_handle("navigation", "pop")
+    parrot(hiss):       user.input_map_channel_handle("navigation", "hiss")
+    parrot(cluck):      user.input_map_channel_handle("combat", "cluck")
     ```
 
-3. Profiles support modes, events, bool handlers, and all the same features:
+3. Channels support modes, events, bool handlers, and all the same features:
     ```py
-    actions.user.input_map_profile_mode_set("combat", "defensive")
-    actions.user.input_map_profile_mode_cycle("combat")
-    actions.user.input_map_profile_mode_revert("combat")
-    actions.user.input_map_profile_event_register("combat", on_input)
-    actions.user.input_map_profile_unregister("combat")
+    actions.user.input_map_channel_mode_set("combat", "defensive")
+    actions.user.input_map_channel_mode_cycle("combat")
+    actions.user.input_map_channel_mode_revert("combat")
+    actions.user.input_map_channel_event_register("combat", on_input)
+    actions.user.input_map_channel_unregister("combat")
     ```
 
 ## Single - lightweight single input
 
-A lightweight way to make a single input mode-aware without setting up the full input map or registering a profile. Auto-registers on first call.
+A lightweight way to make a single input mode-aware without setting up the full input map or registering a channel. Auto-registers on first call.
 
 1. Define a map where keys are modes and values are actions:
     ```py

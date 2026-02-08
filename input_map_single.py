@@ -1,7 +1,7 @@
 """
 Lightweight single-input InputMap API.
 
-Unlike the full input_map (context-based) or profiles (explicitly registered),
+Unlike the full input_map (context-based) or channels (explicitly registered),
 input_map_single provides a minimal way to make a single input mode-aware.
 Auto-registers on first call; re-registers if the map reference changes.
 """
