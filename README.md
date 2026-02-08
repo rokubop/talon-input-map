@@ -35,6 +35,7 @@ git clone https://github.com/rokubop/talon-input-map/
   - [Usage - simple](#usage---simple)
   - [Usage - all features + modes](#usage---all-features--modes)
   - [Profiles - multiple input maps at the same time](#profiles---multiple-input-maps-at-the-same-time)
+  - [Single - lightweight single input](#single---lightweight-single-input)
   - [Options:](#options)
   - [Testing](#testing)
   - [Dependencies](#dependencies)
@@ -77,10 +78,16 @@ git clone https://github.com/rokubop/talon-input-map/
     face(dimple_left:change):    user.input_map_handle_value("dimple_left", value)
     ```
 
+    Or use `noise.register` with the bool handler:
+    ```py
+    noise.register("hiss", lambda active: actions.user.input_map_handle_bool("hiss", active))
+    ```
+
     - `input_map_handle` - generic handler - works for everything
     - `input_map_handle_parrot` - if you want to use `power`, `f0`, `f1`, `f2`
     - `input_map_handle_xy` - if you want to use `x` or `y` (for gaze or gamepad sticks)
     - `input_map_handle_value` - if you want to use `value` (for face features or gamepad triggers using `:change`)
+    - `input_map_handle_bool` - for boolean active/stop inputs (maps `True` to `"name"`, `False` to `"name_stop"`)
 
 2. Define your input map with modes:
 
@@ -125,6 +132,7 @@ git clone https://github.com/rokubop/talon-input-map/
     ```py
     actions.user.input_map_mode_set("combat")
     actions.user.input_map_mode_cycle()
+    actions.user.input_map_mode_revert()  # back to previous mode
     ```
 
 Key behaviors:
@@ -163,13 +171,51 @@ Instead of the context approach, you can use profiles to have multiple input map
     parrot(cluck):      user.input_map_profile_handle("combat", "cluck")
     ```
 
-3. Profiles support modes, events, and all the same features:
+3. Profiles support modes, events, bool handlers, and all the same features:
     ```py
     actions.user.input_map_profile_mode_set("combat", "defensive")
     actions.user.input_map_profile_mode_cycle("combat")
+    actions.user.input_map_profile_mode_revert("combat")
     actions.user.input_map_profile_event_register("combat", on_input)
     actions.user.input_map_profile_unregister("combat")
     ```
+
+## Single - lightweight single input
+
+A lightweight way to make a single input mode-aware without setting up the full input map or registering a profile. Auto-registers on first call.
+
+1. Define a map where keys are modes and values are actions:
+    ```py
+    pop_map = {
+        "click":  ("left click", lambda: actions.mouse_click(0)),
+        "repeat": ("repeat",     lambda: actions.core.repeat_command(1)),
+    }
+    ```
+
+2. Call the single handler:
+    ```talon
+    parrot(pop): user.input_map_single("pop", pop_map)
+    ```
+
+    Or with bool for noise:
+    ```py
+    noise.register("hiss", lambda active: actions.user.input_map_single_bool("hiss", hiss_map, active))
+    ```
+
+3. Manage modes:
+    ```py
+    actions.user.input_map_single_mode_set("pop", "repeat")
+    actions.user.input_map_single_mode_cycle("pop")
+    actions.user.input_map_single_mode_revert("pop")
+    actions.user.input_map_single_mode_get("pop")
+    actions.user.input_map_single_get_legend("pop", pop_map)
+    ```
+
+Key behaviors:
+- First dict key is the initial mode
+- Independent state per name
+- Auto-re-registers if map reference changes
+- Events fire through the global `input_map_event_register` system (with `"single": name` in event dict)
 
 ## Options:
 | Definition | Description |

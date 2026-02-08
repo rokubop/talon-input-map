@@ -3,6 +3,7 @@ from .input_map import (
     input_map_mode_cycle,
     input_map_mode_get,
     input_map_mode_set,
+    input_map_mode_revert,
     input_map_handle,
     input_map_event_register,
     input_map_event_unregister,
@@ -17,9 +18,18 @@ from .input_map_profile import (
     profile_mode_set,
     profile_mode_get,
     profile_mode_cycle,
+    profile_mode_revert,
     profile_get_legend,
     profile_event_register,
     profile_event_unregister,
+)
+from .input_map_single import (
+    single_handle,
+    single_mode_set,
+    single_mode_get,
+    single_mode_cycle,
+    single_mode_revert,
+    single_get_legend,
 )
 from .input_map_tests import run_tests
 
@@ -75,6 +85,19 @@ class Actions:
         ```
         """
         input_map_handle(name, value=value)
+
+    def input_map_handle_bool(name: str, active: bool):
+        """
+        Handle a boolean input (active/stop).
+
+        Maps active=True to "name" and active=False to "name_stop".
+
+        Example:
+        ```py
+        noise.register("hiss", lambda active: actions.user.input_map_handle_bool("hiss", active))
+        ```
+        """
+        input_map_handle(name if active else f"{name}_stop")
 
     def input_map():
         """
@@ -166,6 +189,18 @@ class Actions:
         Get the current mode
         """
         return input_map_mode_get()
+
+    def input_map_mode_revert() -> str:
+        """
+        Revert to the previous mode.
+
+        Example:
+        ```py
+        actions.user.input_map_mode_set("combat")
+        actions.user.input_map_mode_revert()  # back to previous mode
+        ```
+        """
+        return input_map_mode_revert()
 
     def input_map_get_legend(
         input_map: dict[str, tuple[str, callable]] = None,
@@ -309,6 +344,19 @@ class Actions:
         """
         profile_handle(profile, input_name, value=value)
 
+    def input_map_profile_handle_bool(profile: str, input_name: str, active: bool):
+        """
+        Handle a boolean input for a specific profile.
+
+        Maps active=True to "name" and active=False to "name_stop".
+
+        Example:
+        ```py
+        noise.register("hiss", lambda active: actions.user.input_map_profile_handle_bool("my_profile", "hiss", active))
+        ```
+        """
+        profile_handle(profile, input_name if active else f"{input_name}_stop")
+
     def input_map_profile_mode_set(profile: str, mode: str):
         """
         Set the mode for a specific profile.
@@ -326,6 +374,18 @@ class Actions:
         Cycle to the next mode for a specific profile.
         """
         return profile_mode_cycle(profile)
+
+    def input_map_profile_mode_revert(profile: str) -> str:
+        """
+        Revert to the previous mode for a specific profile.
+
+        Example:
+        ```py
+        actions.user.input_map_profile_mode_set("my_profile", "combat")
+        actions.user.input_map_profile_mode_revert("my_profile")  # back to previous
+        ```
+        """
+        return profile_mode_revert(profile)
 
     def input_map_profile_get_legend(profile: str, mode: str = None) -> dict[str, str]:
         """
@@ -353,6 +413,97 @@ class Actions:
         Unregister an event callback for a specific profile.
         """
         profile_event_unregister(profile, on_input)
+
+    # Single input map actions
+
+    def input_map_single(name: str, map: dict):
+        """
+        Handle a basic single input.
+
+        Example:
+        ```talon
+        noise(pop): user.input_map_single("pop", pop_map)
+        ```
+        """
+        single_handle(name, map)
+
+    def input_map_single_parrot(name: str, map: dict, power: float, f0: float, f1: float, f2: float):
+        """
+        Handle a parrot single input with frequency data.
+
+        Example:
+        ```talon
+        parrot(pop): user.input_map_single_parrot("pop", pop_map, power, f0, f1, f2)
+        ```
+        """
+        single_handle(name, map, power=power, f0=f0, f1=f1, f2=f2)
+
+    def input_map_single_xy(name: str, map: dict, x: float, y: float):
+        """
+        Handle an xy single input.
+
+        Example:
+        ```talon
+        face(gaze_xy): user.input_map_single_xy("gaze", gaze_map, gaze_x, gaze_y)
+        ```
+        """
+        single_handle(name, map, x=x, y=y)
+
+    def input_map_single_value(name: str, map: dict, value: float):
+        """
+        Handle a value change single input.
+
+        Example:
+        ```talon
+        face(dimple_left:change): user.input_map_single_value("dimple", dimple_map, value)
+        ```
+        """
+        single_handle(name, map, value=value)
+
+    def input_map_single_bool(name: str, map: dict, active: bool):
+        """
+        Handle a boolean single input.
+
+        Maps active=True to "name" and active=False to "name_stop".
+
+        Example:
+        ```py
+        noise.register("hiss", lambda active: actions.user.input_map_single_bool("hiss", hiss_map, active))
+        ```
+        """
+        single_handle(name if active else f"{name}_stop", map)
+
+    def input_map_single_mode_set(name: str, mode: str):
+        """
+        Set the mode for a single input.
+        """
+        single_mode_set(name, mode)
+
+    def input_map_single_mode_get(name: str) -> str:
+        """
+        Get the current mode for a single input.
+        """
+        return single_mode_get(name)
+
+    def input_map_single_mode_cycle(name: str) -> str:
+        """
+        Cycle to the next mode for a single input.
+        """
+        return single_mode_cycle(name)
+
+    def input_map_single_mode_revert(name: str) -> str:
+        """
+        Revert to the previous mode for a single input.
+        """
+        return single_mode_revert(name)
+
+    def input_map_single_get_legend(name: str, map: dict, mode: str = None) -> dict[str, str]:
+        """
+        Get the legend for a single input map.
+
+        Returns {input: label} with modifiers stripped and empty entries filtered.
+        """
+        return single_get_legend(name, map, mode)
 
     def input_map_tests():
         """

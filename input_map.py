@@ -21,6 +21,7 @@ class InputMap():
     def __init__(self, input_map: dict = None, event_trigger: callable = None):
         self.input_map_user_ref = None
         self.current_mode = None
+        self.previous_mode = None
         self.immediate_commands = {}
         self.delayed_commands = {}
         self.immediate_variable_patterns = {}
@@ -70,6 +71,8 @@ class InputMap():
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
+        if self.current_mode is not None:
+            self.previous_mode = self.current_mode
         self.current_mode = mode
         self.combo_chain = ""
         self.pending_combo = None
@@ -476,6 +479,11 @@ def input_map_mode_cycle() -> str:
         return next_mode
     else:
         raise ValueError(f"Mode '{current_mode}' not found in input_map")
+
+def input_map_mode_revert() -> str:
+    if input_map_saved.previous_mode is not None:
+        input_map_saved.setup_mode(input_map_saved.previous_mode)
+    return input_map_saved.current_mode
 
 def input_map_get(mode: str = None) -> dict:
     """Get the input map dict for the current or specified mode."""

@@ -89,6 +89,16 @@ def profile_mode_get(profile: str) -> str:
     return _profiles[profile].current_mode
 
 
+def profile_mode_revert(profile: str) -> str:
+    """Revert to the previous mode for a specific profile."""
+    if profile not in _profiles:
+        raise ValueError(f"Profile '{profile}' not registered")
+    instance = _profiles[profile]
+    if instance.previous_mode is not None:
+        instance.setup_mode(instance.previous_mode)
+    return instance.current_mode
+
+
 def profile_mode_cycle(profile: str) -> str:
     """Cycle to the next mode for a specific profile."""
     if profile not in _profiles:

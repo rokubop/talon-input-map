@@ -1,5 +1,5 @@
 from talon import actions
-from .input_map import InputMap
+from .input_map import InputMap, input_map_saved, input_map_mode_revert
 from .input_map_parse import (
     get_base_input,
     extract_variables,
@@ -21,11 +21,24 @@ from .input_map_profile import (
     profile_mode_set,
     profile_mode_get,
     profile_mode_cycle,
+    profile_mode_revert,
     profile_get_legend,
     profile_event_register,
     profile_event_unregister,
     _profiles,
     _profile_callbacks,
+)
+from .input_map_single import (
+    normalize_single_map,
+    single_handle,
+    single_mode_set,
+    single_mode_get,
+    single_mode_cycle,
+    single_mode_revert,
+    single_get_legend,
+    _singles,
+    _singles_map_ref,
+    _singles_mode_order,
 )
 
 # To run the test suite, open the Talon REPL and run:
@@ -511,8 +524,8 @@ def test_profile_events():
         profile_unregister("test_events")
 
     events = []
-    def on_input(input: str, label: str):
-        events.append((input, label))
+    def on_input(event: dict):
+        events.append((event["input"], event["label"]))
 
     test_config = {
         "pop": ("Click", lambda: None),
@@ -1190,6 +1203,404 @@ def test_input_map_spread_override_modes():
 
     print()
 
+def _cleanup_single(name: str):
+    """Clean up a single registration for testing."""
+    _singles.pop(name, None)
+    _singles_map_ref.pop(name, None)
+    _singles_mode_order.pop(name, None)
+
+def test_normalize_single_map_simple():
+    print("Testing normalize_single_map simple...")
+
+    result = normalize_single_map("pop", {
+        "click": lambda: None,
+        "repeat": lambda: None,
+    })
+    assert "click" in result and "repeat" in result
+    assert "pop" in result["click"]
+    assert result["click"]["pop"][0] == ""
+    assert callable(result["click"]["pop"][1])
+    print("  ✓ Callable values wrapped correctly")
+
+    print()
+
+def test_normalize_single_map_tuple():
+    print("Testing normalize_single_map tuple...")
+
+    result = normalize_single_map("pop", {
+        "click": ("left click", lambda: None),
+        "repeat": ("repeat", lambda: None),
+    })
+    assert "click" in result and "repeat" in result
+    assert "pop" in result["click"]
+    assert result["click"]["pop"][0] == "left click"
+    print("  ✓ Tuple values preserved correctly")
+
+    print()
+
+def test_normalize_single_map_expanded():
+    print("Testing normalize_single_map expanded...")
+
+    inner = {
+        "pop":     ("click", lambda: None),
+        "pop pop": ("double click", lambda: None),
+    }
+    result = normalize_single_map("pop", {
+        "click": inner,
+    })
+    assert result["click"] is inner
+    print("  ✓ Dict values pass through as-is")
+
+    print()
+
+def test_single_handle_basic():
+    print("Testing single_handle basic...")
+
+    _cleanup_single("test_pop")
+
+    executed = []
+    pop_map = {
+        "click": lambda: executed.append("click"),
+        "repeat": lambda: executed.append("repeat"),
+    }
+
+    single_handle("test_pop", pop_map)
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Executes first mode action")
+
+    _cleanup_single("test_pop")
+    print()
+
+def test_single_handle_tuple():
+    print("Testing single_handle tuple...")
+
+    _cleanup_single("test_pop_tuple")
+
+    executed = []
+    pop_map = {
+        "click": ("left click", lambda: executed.append("click")),
+        "repeat": ("repeat", lambda: executed.append("repeat")),
+    }
+
+    single_handle("test_pop_tuple", pop_map)
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Tuple form executes correctly")
+
+    _cleanup_single("test_pop_tuple")
+    print()
+
+def test_single_mode_switching():
+    print("Testing single mode switching...")
+
+    _cleanup_single("test_mode_switch")
+
+    executed = []
+    pop_map = {
+        "click": lambda: executed.append("click"),
+        "repeat": lambda: executed.append("repeat"),
+    }
+
+    single_handle("test_mode_switch", pop_map)
+    assert executed == ["click"], f"Failed: got {executed}"
+
+    single_mode_set("test_mode_switch", "repeat")
+    executed.clear()
+    single_handle("test_mode_switch", pop_map)
+    assert executed == ["repeat"], f"Failed: got {executed}"
+    print("  ✓ Mode switching changes behavior")
+
+    _cleanup_single("test_mode_switch")
+    print()
+
+def test_single_mode_cycle():
+    print("Testing single mode cycle...")
+
+    _cleanup_single("test_cycle")
+
+    executed = []
+    pop_map = {
+        "click": lambda: executed.append("click"),
+        "repeat": lambda: executed.append("repeat"),
+        "scroll": lambda: executed.append("scroll"),
+    }
+
+    single_handle("test_cycle", pop_map)
+    assert single_mode_get("test_cycle") == "click"
+
+    next_mode = single_mode_cycle("test_cycle")
+    assert next_mode == "repeat", f"Failed: got {next_mode}"
+
+    next_mode = single_mode_cycle("test_cycle")
+    assert next_mode == "scroll", f"Failed: got {next_mode}"
+
+    # Wrap around
+    next_mode = single_mode_cycle("test_cycle")
+    assert next_mode == "click", f"Failed: got {next_mode}"
+    print("  ✓ Cycling with wrap-around works")
+
+    _cleanup_single("test_cycle")
+    print()
+
+def test_single_mode_get():
+    print("Testing single_mode_get...")
+
+    _cleanup_single("test_get_mode")
+
+    pop_map = {
+        "click": lambda: None,
+        "repeat": lambda: None,
+    }
+
+    single_handle("test_get_mode", pop_map)
+    assert single_mode_get("test_get_mode") == "click", f"Failed: got {single_mode_get('test_get_mode')}"
+    print("  ✓ Correct mode returned")
+
+    _cleanup_single("test_get_mode")
+    print()
+
+def test_single_first_mode_is_default():
+    print("Testing single first mode is default...")
+
+    _cleanup_single("test_first_mode")
+
+    pop_map = {
+        "special": lambda: None,
+        "normal": lambda: None,
+    }
+
+    single_handle("test_first_mode", pop_map)
+    assert single_mode_get("test_first_mode") == "special", f"Failed: got {single_mode_get('test_first_mode')}"
+    print("  ✓ First key is initial mode")
+
+    _cleanup_single("test_first_mode")
+    print()
+
+def test_single_get_legend():
+    print("Testing single_get_legend...")
+
+    _cleanup_single("test_legend_s")
+
+    pop_map = {
+        "click": ("left click", lambda: None),
+        "repeat": ("repeat cmd", lambda: None),
+    }
+
+    legend = single_get_legend("test_legend_s", pop_map)
+    assert legend == {"test_legend_s": "left click"}, f"Failed: got {legend}"
+    print("  ✓ Returns {input: label}")
+
+    legend2 = single_get_legend("test_legend_s", pop_map, "repeat")
+    assert legend2 == {"test_legend_s": "repeat cmd"}, f"Failed: got {legend2}"
+    print("  ✓ Specific mode legend works")
+
+    _cleanup_single("test_legend_s")
+    print()
+
+def test_single_independent_state():
+    print("Testing single independent state...")
+
+    _cleanup_single("test_ind_a")
+    _cleanup_single("test_ind_b")
+
+    executed = []
+    map_a = {
+        "mode1": lambda: executed.append("a_mode1"),
+        "mode2": lambda: executed.append("a_mode2"),
+    }
+    map_b = {
+        "modeX": lambda: executed.append("b_modeX"),
+        "modeY": lambda: executed.append("b_modeY"),
+    }
+
+    single_handle("test_ind_a", map_a)
+    single_handle("test_ind_b", map_b)
+    assert executed == ["a_mode1", "b_modeX"], f"Failed: got {executed}"
+
+    # Change mode of A, B should be unaffected
+    single_mode_set("test_ind_a", "mode2")
+    executed.clear()
+    single_handle("test_ind_a", map_a)
+    single_handle("test_ind_b", map_b)
+    assert executed == ["a_mode2", "b_modeX"], f"Failed: got {executed}"
+    print("  ✓ Two names don't interfere")
+
+    _cleanup_single("test_ind_a")
+    _cleanup_single("test_ind_b")
+    print()
+
+def test_single_auto_reregister():
+    print("Testing single auto re-register...")
+
+    _cleanup_single("test_rereg")
+
+    executed = []
+    map_v1 = {
+        "click": lambda: executed.append("v1"),
+    }
+    map_v2 = {
+        "click": lambda: executed.append("v2"),
+    }
+
+    single_handle("test_rereg", map_v1)
+    assert executed == ["v1"], f"Failed: got {executed}"
+
+    # New dict ref should trigger re-registration
+    executed.clear()
+    single_handle("test_rereg", map_v2)
+    assert executed == ["v2"], f"Failed: got {executed}"
+    print("  ✓ New dict ref triggers re-setup")
+
+    _cleanup_single("test_rereg")
+    print()
+
+def test_single_mode_revert():
+    print("Testing single_mode_revert...")
+
+    _cleanup_single("test_revert_s")
+
+    executed = []
+    pop_map = {
+        "click": lambda: executed.append("click"),
+        "repeat": lambda: executed.append("repeat"),
+    }
+
+    single_handle("test_revert_s", pop_map)
+    assert single_mode_get("test_revert_s") == "click"
+
+    single_mode_set("test_revert_s", "repeat")
+    assert single_mode_get("test_revert_s") == "repeat"
+
+    result = single_mode_revert("test_revert_s")
+    assert result == "click", f"Failed: got {result}"
+    assert single_mode_get("test_revert_s") == "click"
+    print("  ✓ Reverts to previous mode")
+
+    _cleanup_single("test_revert_s")
+    print()
+
+def test_mode_revert():
+    print("Testing main input_map mode_revert...")
+
+    executed = []
+    test_config = {
+        "default": {
+            "pop": ("default action", lambda: executed.append("default")),
+        },
+        "combat": {
+            "pop": ("combat action", lambda: executed.append("combat")),
+        }
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    assert input_map.current_mode == "default"
+    input_map.setup_mode("combat")
+    assert input_map.current_mode == "combat"
+    assert input_map.previous_mode == "default"
+
+    input_map.setup_mode(input_map.previous_mode)
+    assert input_map.current_mode == "default"
+    print("  ✓ Reverts to previous mode")
+
+    print()
+
+def test_profile_mode_revert():
+    print("Testing profile_mode_revert...")
+
+    if "test_revert_p" in _profiles:
+        profile_unregister("test_revert_p")
+
+    test_config = {
+        "default": {"pop": ("default", lambda: None)},
+        "combat": {"pop": ("combat", lambda: None)},
+    }
+
+    profile_register("test_revert_p", test_config)
+
+    assert profile_mode_get("test_revert_p") == "default"
+    profile_mode_set("test_revert_p", "combat")
+    assert profile_mode_get("test_revert_p") == "combat"
+
+    result = profile_mode_revert("test_revert_p")
+    assert result == "default", f"Failed: got {result}"
+    assert profile_mode_get("test_revert_p") == "default"
+    print("  ✓ Reverts profile to previous mode")
+
+    profile_unregister("test_revert_p")
+    print()
+
+def test_handle_bool_basic():
+    print("Testing handle_bool basic...")
+
+    executed = []
+    test_config = {
+        "hiss": ("scroll", lambda: executed.append("start")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("hiss")
+    assert executed == ["start"], f"Failed: got {executed}"
+    print("  ✓ active=True maps to name")
+
+    input_map.execute("hiss_stop")
+    assert executed == ["start", "stop"], f"Failed: got {executed}"
+    print("  ✓ active=False maps to name_stop")
+
+    print()
+
+def test_handle_bool_profile():
+    print("Testing handle_bool profile...")
+
+    if "test_bool_p" in _profiles:
+        profile_unregister("test_bool_p")
+
+    executed = []
+    test_config = {
+        "hiss": ("scroll", lambda: executed.append("start")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    }
+
+    profile_register("test_bool_p", test_config)
+
+    profile_handle("test_bool_p", "hiss")
+    assert executed == ["start"], f"Failed: got {executed}"
+
+    profile_handle("test_bool_p", "hiss_stop")
+    assert executed == ["start", "stop"], f"Failed: got {executed}"
+    print("  ✓ Profile bool active/stop works")
+
+    profile_unregister("test_bool_p")
+    print()
+
+def test_handle_bool_single():
+    print("Testing handle_bool single...")
+
+    _cleanup_single("test_bool_s")
+    _cleanup_single("test_bool_s_stop")
+
+    executed = []
+    hiss_map = {
+        "default": {
+            "test_bool_s": ("scroll", lambda: executed.append("start")),
+            "test_bool_s_stop": ("stop", lambda: executed.append("stop")),
+        },
+    }
+
+    single_handle("test_bool_s", hiss_map)
+    assert executed == ["start"], f"Failed: got {executed}"
+
+    single_handle("test_bool_s_stop", hiss_map)
+    assert executed == ["start", "stop"], f"Failed: got {executed}"
+    print("  ✓ Single bool active/stop works")
+
+    _cleanup_single("test_bool_s")
+    _cleanup_single("test_bool_s_stop")
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -1260,6 +1671,30 @@ def run_tests():
     test_profile_modes()
     test_profile_get_legend()
     test_profile_events()
+
+    # Single tests
+    test_normalize_single_map_simple()
+    test_normalize_single_map_tuple()
+    test_normalize_single_map_expanded()
+    test_single_handle_basic()
+    test_single_handle_tuple()
+    test_single_mode_switching()
+    test_single_mode_cycle()
+    test_single_mode_get()
+    test_single_first_mode_is_default()
+    test_single_get_legend()
+    test_single_independent_state()
+    test_single_auto_reregister()
+    test_single_mode_revert()
+
+    # Mode revert tests
+    test_mode_revert()
+    test_profile_mode_revert()
+
+    # Bool handler tests
+    test_handle_bool_basic()
+    test_handle_bool_profile()
+    test_handle_bool_single()
 
     print()
     print("=" * 50)
