@@ -1,5 +1,5 @@
 ![Version](https://img.shields.io/badge/version-0.6.0-blue)
-![Status](https://img.shields.io/badge/status-preview-orange)
+![Status](https://img.shields.io/badge/status-experimental-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 # Talon Input Map
