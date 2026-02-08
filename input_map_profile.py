@@ -62,7 +62,7 @@ def profile_handle(
     f2: float = None,
     x: float = None,
     y: float = None,
-    value: bool = None
+    value: float = None
 ):
     """Execute input handling for a specific profile."""
     if profile not in _profiles:

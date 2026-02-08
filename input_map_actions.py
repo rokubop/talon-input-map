@@ -64,9 +64,9 @@ class Actions:
         """
         input_map_handle(name, x=x, y=y)
 
-    def input_map_handle_value(name: str, value: bool):
+    def input_map_handle_value(name: str, value: float):
         """
-        Handle a boolean change input (face feature, gamepad trigger).
+        Handle a value change input (face feature, gamepad trigger).
 
         Example:
         ```talon
@@ -298,9 +298,9 @@ class Actions:
         """
         profile_handle(profile, input_name, x=x, y=y)
 
-    def input_map_profile_handle_value(profile: str, input_name: str, value: bool):
+    def input_map_profile_handle_value(profile: str, input_name: str, value: float):
         """
-        Handle a boolean change input for a specific profile.
+        Handle a value change input for a specific profile.
 
         Example:
         ```talon

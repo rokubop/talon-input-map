@@ -6,6 +6,22 @@ import re
 import inspect
 
 CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
+MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
+
+def validate_input_format(input_key: str):
+    """Warn if an input key looks like it has a misformatted condition."""
+    base = input_key.split(':')[0]
+    for part in base.split():
+        if MISFORMATTED_CONDITION_PATTERN.search(part):
+            match = re.match(r'^(.*?)(>=|<=|==|!=|>|<)(.*)', part)
+            if match and match.group(1) not in ('power', 'f0', 'f1', 'f2', 'x', 'y', 'value'):
+                print(
+                    f"\nWarning: '{input_key}' looks like it contains a condition "
+                    f"but '{match.group(1)}' is not a condition variable.\n"
+                    f"Did you mean: '{match.group(1)}:value{match.group(2)}{match.group(3)}'?\n"
+                    f"Valid condition format: 'input_name:variable>threshold'\n"
+                    f"Valid variables: power, f0, f1, f2, x, y, value\n"
+                )
 
 def parse_condition(segment: str):
     """Parse a single segment like 'power>10' into ('power', '>', 10.0), or None if not a condition."""
@@ -263,6 +279,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy):
             base_input_map[cleaned_key] = base_combo
             conditional_commands.append((cleaned_key, action, conditions))
         else:
+            validate_input_format(input)
             base_combo, base_inputs = get_base_input(input)
 
             if "_stop" in input and len(base_inputs) == 1:

@@ -64,6 +64,21 @@ actions.user.input_map_mode_set("default")
 actions.user.input_map_mode_cycle()
 ```
 
+## Options:
+| Definition | Description |
+|------------|-------------|
+| `"pop pop"` | Triggers when you combo two pops in a row within `300ms`. If you define this combo, then a regular `"pop"` will be delayed, in order to determine to use the single pop or wait for the combo pop. |
+| `"pop cluck"` | Triggers when you combo pop then cluck within `300ms`. If you use this combo, then a regular `"pop"` will be delayed, in order to determine to use the single pop or wait for the pop+cluck. |
+| `"pop cluck pop"` | Triggers when you combo pop then cluck then pop within `300ms` between each. If you use this combo, then a regular `"pop"` and `"pop cluck"` will be delayed, in order to determine to use the partial command or wait for the full potential combo. |
+| `"pop:th_100"` | Throttles the pop command to only trigger once every 100ms. |
+| `"pop:th"` | Default throttle for the pop command. |
+| `"hiss:db_100"` | Debounces the hiss command to only trigger after 100ms of continuous input. |
+| `"hiss:db"` | Default debounce for the hiss command. |
+| `"pop $input"` | Variable pattern that captures any primitive input after "pop" and passes it to the lambda function. |
+| `"pop:power>10"` | Conditional matching. Executes only when power > 10. Used with `parrot()` and `input_map_handle_parrot`. |
+| `"gaze:x<500:y<500"` | Multiple conditions (AND). Executes only when both x < 500 and y < 500. Used with `face() or gamepad()` and `input_map_handle_xy`. |
+| `"dimple_left:value>0.5"` | Executes only when the dimple_left value exceeds 0.5. Used with `face()` and `input_map_handle_value`. |
+| `"pop:power>10:th_100"` | Conditional with throttle. Combines condition matching with throttling. |
 
 ## Example with Parrot
 
@@ -241,21 +256,6 @@ class Actions:
     def input_map():
         return input_map
 ```
-
-## Options:
-| Definition | Description |
-|------------|-------------|
-| `"pop pop"` | Triggers when you combo two pops in a row within `300ms`. If you define this combo, then a regular `"pop"` will be delayed, in order to determine to use the single pop or wait for the combo pop. |
-| `"pop cluck"` | Triggers when you combo pop then cluck within `300ms`. If you use this combo, then a regular `"pop"` will be delayed, in order to determine to use the single pop or wait for the pop+cluck. |
-| `"pop cluck pop"` | Triggers when you combo pop then cluck then pop within `300ms` between each. If you use this combo, then a regular `"pop"` and `"pop cluck"` will be delayed, in order to determine to use the partial command or wait for the full potential combo. |
-| `"pop:th_100"` | Throttles the pop command to only trigger once every 100ms. |
-| `"pop:th"` | Default throttle for the pop command. |
-| `"hiss:db_100"` | Debounces the hiss command to only trigger after 100ms of continuous input. |
-| `"hiss:db"` | Default debounce for the hiss command. |
-| `"pop $input"` | Variable pattern that captures any primitive input after "pop" and passes it to the lambda function. |
-| `"pop:power>10"` | Conditional matching. Executes only when power > 10. Requires `input_map_handle_parrot`. |
-| `"gaze:x<500:y<500"` | Multiple conditions (AND). Executes only when both x < 500 and y < 500. |
-| `"pop:power>10:th_100"` | Conditional with throttle. Combines condition matching with throttling. |
 
 ## Testing
 

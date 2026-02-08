@@ -288,7 +288,7 @@ class InputMap():
         f2: float = None,
         x: float = None,
         y: float = None,
-        value: bool = None
+        value: float = None
     ):
         # Store input context for actions and condition evaluation
         self._context = {"power": power, "f0": f0, "f1": f1, "f2": f2, "x": x, "y": y, "value": value}
@@ -370,7 +370,7 @@ def input_map_handle(
     f2: float = None,
     x: float = None,
     y: float = None,
-    value: bool = None
+    value: float = None
 ):
     input_map = actions.user.input_map()
     if input_map_saved.input_map_user_ref != input_map:
