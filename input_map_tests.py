@@ -1078,6 +1078,118 @@ def test_input_map_edge_triggered_negative_threshold():
 
     print()
 
+def test_input_map_spread_override_same_modifier():
+    print("Testing InputMap spread override with same modifier...")
+
+    executed = []
+    default_input_map = {
+        "pop": ("default pop", lambda: executed.append("default_pop")),
+        "hiss:th_90": ("default scroll", lambda: executed.append("default_scroll")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    }
+
+    combat_input_map = {
+        **default_input_map,
+        "hiss:th_90": ("combat scroll", lambda: executed.append("combat_scroll")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(combat_input_map)
+
+    # Override should win
+    input_map.execute("hiss")
+    assert executed == ["combat_scroll"], f"Failed: got {executed}"
+    print("  ✓ Same modifier override wins")
+
+    # Inherited command still works
+    executed.clear()
+    input_map.execute("pop")
+    assert executed == ["default_pop"], f"Failed: got {executed}"
+    print("  ✓ Inherited command unchanged")
+
+    print()
+
+def test_input_map_spread_override_different_modifier():
+    print("Testing InputMap spread override with different modifier...")
+
+    executed = []
+    default_input_map = {
+        "pop": ("default pop", lambda: executed.append("default_pop")),
+        "hiss:th_90": ("throttled scroll", lambda: executed.append("throttled")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    }
+
+    combat_input_map = {
+        **default_input_map,
+        "hiss:db_90": ("debounced scroll", lambda: executed.append("debounced")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(combat_input_map)
+
+    # Both keys exist in the dict ("hiss:th_90" from spread, "hiss:db_90" from override)
+    # Both resolve to base "hiss" — the last one processed should win
+    input_map.execute("hiss")
+
+    # The debounced one (last in dict) should win, but it's debounced so no immediate execution
+    assert executed == [], f"Failed: debounce should delay execution, got {executed}"
+    print("  ✓ Last modifier (db) wins over spread modifier (th)")
+
+    actions.sleep("100ms")
+    assert executed == ["debounced"], f"Failed: debounce didn't fire, got {executed}"
+    print("  ✓ Debounced action fires after delay")
+
+    print()
+
+def test_input_map_spread_override_modes():
+    print("Testing InputMap spread override with modes...")
+
+    executed = []
+    default_input_map = {
+        "hiss:th_90": ("default scroll", lambda: executed.append("default_scroll")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    }
+
+    combat_input_map = {
+        **default_input_map,
+        "hiss:th_90": ("combat scroll", lambda: executed.append("combat_scroll")),
+    }
+
+    test_config = {
+        "default": default_input_map,
+        "combat": combat_input_map,
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Default mode uses default scroll
+    input_map.execute("hiss")
+    assert executed == ["default_scroll"], f"Failed: got {executed}"
+    print("  ✓ Default mode uses default action")
+
+    # Wait for throttle to expire before switching modes
+    actions.sleep("100ms")
+
+    # Switch to combat mode — override should be active
+    input_map.setup_mode("combat")
+    executed.clear()
+    input_map.execute("hiss")
+    assert executed == ["combat_scroll"], f"Failed: got {executed}"
+    print("  ✓ Combat mode uses overridden action")
+
+    # Wait for throttle to expire before switching back
+    actions.sleep("100ms")
+
+    # Switch back to default — should use default again
+    input_map.setup_mode("default")
+    executed.clear()
+    input_map.execute("hiss")
+    assert executed == ["default_scroll"], f"Failed: got {executed}"
+    print("  ✓ Switching back restores default action")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -1134,6 +1246,11 @@ def run_tests():
     test_input_map_edge_triggered_mode_reset()
     test_input_map_no_else_unchanged()
     test_input_map_edge_triggered_negative_threshold()
+
+    # Spread override tests
+    test_input_map_spread_override_same_modifier()
+    test_input_map_spread_override_different_modifier()
+    test_input_map_spread_override_modes()
 
     # Profile tests
     test_profile_register_unregister()
