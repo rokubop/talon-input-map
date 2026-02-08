@@ -5,6 +5,7 @@ This module handles setup-time processing (cold path).
 import re
 import inspect
 
+CONTEXT_KEYS = {"power", "f0", "f1", "f2", "x", "y", "value"}
 CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
 MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
 
@@ -173,6 +174,24 @@ def execute_variable_action(action: tuple, variables: dict[str, str]):
     except (ValueError, TypeError):
         return lambda_func()
 
+def wrap_with_context(action: tuple, context_ref: dict) -> tuple:
+    """If callable has params matching context keys, wrap to pull from context_ref at call time."""
+    func = action[1]
+    if not callable(func):
+        return action
+    try:
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+    except (ValueError, TypeError):
+        return action
+    if not params or not all(p in CONTEXT_KEYS for p in params):
+        return action
+    def make_wrapper(original, param_names, ctx):
+        def wrapper():
+            return original(*[ctx.get(p) for p in param_names])
+        return wrapper
+    return (action[0], make_wrapper(func, params, context_ref))
+
 def process_command_categorization(input, action, base_input_map, combo_input_set, immediate_commands, delayed_commands, throttle_busy, debounce_busy):
     modified_action = get_modified_action(input, action, throttle_busy, debounce_busy)
     base = base_input_map[input]
@@ -222,7 +241,7 @@ def process_conditional_categorization(input, action, conditions, base_input_map
     else:
         immediate_conditional.setdefault(base, []).append((conditions, modified_action))
 
-def categorize_commands(commands, throttle_busy, debounce_busy):
+def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None):
     immediate_commands = {}
     delayed_commands = {}
     immediate_variable_patterns = {}
@@ -277,6 +296,8 @@ def categorize_commands(commands, throttle_busy, debounce_busy):
 
             combo_input_set.add(base_combo)
             base_input_map[cleaned_key] = base_combo
+            if context_ref is not None:
+                action = wrap_with_context(action, context_ref)
             conditional_commands.append((cleaned_key, action, conditions))
         else:
             validate_input_format(input)
@@ -293,6 +314,8 @@ def categorize_commands(commands, throttle_busy, debounce_busy):
 
             combo_input_set.add(base_combo)
             base_input_map[input] = base_combo
+            if context_ref is not None:
+                action = wrap_with_context(action, context_ref)
             active_commands.append((input, action))
 
     # Also add base inputs from variable patterns

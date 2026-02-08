@@ -83,7 +83,7 @@ class InputMap():
 
         commands = input_map.get("commands", {}) if "commands" in input_map else input_map
 
-        categorized = categorize_commands(commands, self._throttle_busy, self._debounce_busy)
+        categorized = categorize_commands(commands, self._throttle_busy, self._debounce_busy, context_ref=self._context)
         self.immediate_commands = categorized["immediate_commands"]
         self.delayed_commands = categorized["delayed_commands"]
         self.immediate_variable_patterns = categorized["immediate_variable_patterns"]
@@ -291,7 +291,7 @@ class InputMap():
         value: float = None
     ):
         # Store input context for actions and condition evaluation
-        self._context = {"power": power, "f0": f0, "f1": f1, "f2": f2, "x": x, "y": y, "value": value}
+        self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
         if input_name not in self.base_inputs:
             return

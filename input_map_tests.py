@@ -735,6 +735,127 @@ def test_input_map_conditional_multi_condition():
 
     print()
 
+def test_input_map_context_params_basic():
+    print("Testing InputMap context params basic...")
+
+    executed = []
+    test_config = {
+        "pop": ("power pop", lambda power: executed.append(f"power={power}")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop", power=42.0)
+    assert executed == ["power=42.0"], f"Failed: got {executed}"
+    print("  ✓ Single context param (power) passed to lambda")
+
+    print()
+
+def test_input_map_context_params_multi():
+    print("Testing InputMap context params multi...")
+
+    executed = []
+    test_config = {
+        "gaze": ("aim", lambda x, y: executed.append(f"x={x},y={y}")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("gaze", x=100.0, y=200.0)
+    assert executed == ["x=100.0,y=200.0"], f"Failed: got {executed}"
+    print("  ✓ Multiple context params (x, y) passed to lambda")
+
+    print()
+
+def test_input_map_context_params_zero_arg():
+    print("Testing InputMap context params zero-arg regression...")
+
+    executed = []
+    test_config = {
+        "pop": ("click", lambda: executed.append("clicked")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop", power=42.0)
+    assert executed == ["clicked"], f"Failed: got {executed}"
+    print("  ✓ Zero-arg lambda still works unchanged")
+
+    print()
+
+def test_input_map_context_params_variable_excluded():
+    print("Testing InputMap context params variable excluded...")
+
+    executed = []
+    test_config = {
+        "tut $noise": ("variable action", lambda noise: executed.append(f"noise={noise}")),
+        "tut": ("base tut", lambda: executed.append("tut")),
+        "pop": ("base pop", lambda: executed.append("pop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Variable pattern should NOT be wrapped - "noise" is a captured input name, not a context key
+    input_map.execute("tut")
+    input_map.execute("pop")
+    assert "noise=pop" in executed, f"Failed: got {executed}"
+    print("  ✓ Variable pattern lambda not wrapped (params are captured inputs)")
+
+    print()
+
+def test_input_map_context_params_conditional():
+    print("Testing InputMap context params with conditional...")
+
+    executed = []
+    test_config = {
+        "pop:power>10": ("loud", lambda power: executed.append(f"loud={power}")),
+        "pop:power<=10": ("soft", lambda power: executed.append(f"soft={power}")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop", power=15.0)
+    assert executed == ["loud=15.0"], f"Failed: got {executed}"
+    print("  ✓ Conditional + context param works (loud)")
+
+    executed.clear()
+    input_map.execute("pop", power=5.0)
+    assert executed == ["soft=5.0"], f"Failed: got {executed}"
+    print("  ✓ Conditional + context param works (soft)")
+
+    print()
+
+def test_input_map_context_params_throttle():
+    print("Testing InputMap context params with throttle...")
+
+    executed = []
+    test_config = {
+        "pop:th_100": ("throttled", lambda power: executed.append(f"power={power}")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop", power=42.0)
+    assert executed == ["power=42.0"], f"Failed: got {executed}"
+    print("  ✓ First throttled call with context param executes")
+
+    input_map.execute("pop", power=99.0)
+    assert executed == ["power=42.0"], f"Failed: second call wasn't throttled, got {executed}"
+    print("  ✓ Second immediate call is throttled")
+
+    actions.sleep("110ms")
+    input_map.execute("pop", power=77.0)
+    assert executed == ["power=42.0", "power=77.0"], f"Failed: got {executed}"
+    print("  ✓ Executes again after throttle with updated context")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -771,6 +892,14 @@ def run_tests():
     test_input_map_conditional_with_fallback()
     test_input_map_conditional_missing_context()
     test_input_map_conditional_multi_condition()
+
+    # Context params tests
+    test_input_map_context_params_basic()
+    test_input_map_context_params_multi()
+    test_input_map_context_params_zero_arg()
+    test_input_map_context_params_variable_excluded()
+    test_input_map_context_params_conditional()
+    test_input_map_context_params_throttle()
 
     # Profile tests
     test_profile_register_unregister()
