@@ -14,6 +14,8 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - variable inputs
 - greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, or `value`
 
+> Formerly known as `parrot_config`.
+
 ## Installation
 
 Clone this repo into your [Talon](https://talonvoice.com/) user directory:
