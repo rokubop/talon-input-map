@@ -10,7 +10,7 @@
         fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
 
   <!-- Active tab -->
-  <path d="M152 60 L152 34 Q152 24 162 24 L238 24 Q248 24 248 34 L248 60"
+  <path d="M152 58 L152 34 Q152 24 162 24 L238 24 Q248 24 248 34 L248 58"
         fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
   <line x1="153" y1="58.5" x2="247" y2="58.5" stroke="#1e293b" stroke-width="3"/>
 
