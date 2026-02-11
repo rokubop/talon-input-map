@@ -48,13 +48,16 @@ git clone https://github.com/rokubop/talon-input-map/
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
   - [Installation](#installation)
+  - [Features](#features)
+  - [Table of Contents](#table-of-contents)
   - [Usage - simple](#usage---simple)
   - [Modes](#modes)
+  - [Single](#single)
   - [Options](#options)
   - [Legend](#legend)
   - [Events](#events)
   - [Mode actions](#mode-actions)
-  - [Channels](#channels---multiple-input-maps-at-the-same-time)
+  - [Channels - multiple input maps at the same time](#channels---multiple-input-maps-at-the-same-time)
   - [Single actions](#single-actions)
   - [Testing](#testing)
   - [Dependencies](#dependencies)
@@ -105,7 +108,7 @@ Switch modes:
 actions.user.input_map_mode_set("combat")
 ```
 
-The `"default"` key is required — it's how input map detects that modes are being used, and it's the initial mode on startup. Use `{**base, ...}` to inherit from a base mode and override specific inputs. See [all mode actions](#mode-actions).
+The `"default"` key is required - it's how input map detects that modes are being used, and it's the initial mode on startup. Use `{**base, ...}` to inherit from a base mode and override specific inputs. See [all mode actions](#mode-actions).
 
 ## Single
 
@@ -192,7 +195,7 @@ face(gaze_xy): user.input_map_handle_xy("gaze", gaze_x, gaze_y)
 "gaze:x>0.5":  ("look right", lambda x, y: actions.user.aim_right(x, y)),
 "gaze:else":   ("neutral",    lambda: None),
 ```
-Requires `input_map_handle_xy` for `x`, `y`. Adding `else` makes it edge-triggered — fires once per region transition instead of every event.
+Requires `input_map_handle_xy` for `x`, `y`. Adding `else` makes it edge-triggered - fires once per region transition instead of every event.
 
 **Condition (face value)**
 ```talon
@@ -225,7 +228,7 @@ Conditions, throttle, and debounce can be combined:
 
 ## Legend
 
-Get a `{input: label}` dict for the current mode — useful for building HUDs or debug displays:
+Get a `{input: label}` dict for the current mode - useful for building HUDs or debug displays:
 ```py
 legend = actions.user.input_map_get_legend()
 # {"pop": "click", "tut": "cancel"}
@@ -299,7 +302,7 @@ actions.user.input_map_single_mode_get("pop")
 actions.user.input_map_single_get_legend("pop", pop_map)
 ```
 
-Map formats — just callables, with labels, or expanded for combos/modifiers:
+Map formats - just callables, with labels, or expanded for combos/modifiers:
 ```py
 # Just callables
 pop_map = {
@@ -313,7 +316,7 @@ pop_map = {
     "repeat": ("repeat",     lambda: actions.core.repeat_command(1)),
 }
 
-# Expanded — for combos/modifiers
+# Expanded - for combos/modifiers
 pop_map = {
     "click": {
         "pop":     ("click",        lambda: actions.mouse_click(0)),
