@@ -30,6 +30,21 @@ cd ~/AppData/Roaming/talon/user
 git clone https://github.com/rokubop/talon-input-map/
 ```
 
+## Features
+
+```py
+"pop":                ("click",   lambda: actions.mouse_click(0))        # basic
+"pop cluck":          ("combo",   lambda: actions.mouse_click(2))        # combo
+"hiss:th_90":         ("scroll",  lambda: actions.user.scroll_down())    # throttle
+"hiss_stop:db_100":   ("stop",    lambda: None)                          # debounce
+"tut $noise":         ("reverse", lambda noise: reverse(noise))          # variable
+"pop:power>10":       ("loud",    lambda: actions.user.strong_click())   # condition
+"pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
+"pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
+```
+
+[Modes](#modes) | [Single](#single) | [Options](#options) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
+
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
   - [Installation](#installation)
