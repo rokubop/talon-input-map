@@ -34,6 +34,8 @@ git clone https://github.com/rokubop/talon-input-map/
   - [Usage - simple](#usage---simple)
   - [Modes](#modes)
   - [Options](#options)
+  - [Legend](#legend)
+  - [Events](#events)
   - [Mode actions](#mode-actions)
   - [Channels](#channels---multiple-input-maps-at-the-same-time)
   - [Single actions](#single-actions)
@@ -204,12 +206,35 @@ Conditions, throttle, and debounce can be combined:
 
 ---
 
+## Legend
+
+Get a `{input: label}` dict for the current mode — useful for building HUDs or debug displays:
+```py
+legend = actions.user.input_map_get_legend()
+# {"pop": "click", "tut": "cancel"}
+```
+
+Modifiers are stripped and empty labels are filtered out.
+
+## Events
+
+Listen to every input that fires through input map:
+```py
+def on_input(event: dict):
+    print(event["input"], event["label"], event["mode"])
+
+actions.user.input_map_event_register(on_input)
+actions.user.input_map_event_unregister(on_input)
+```
+
+Works globally across input map, channels, and singles.
+
 ## Mode actions
 
 ```py
 actions.user.input_map_mode_set("combat")
 actions.user.input_map_mode_cycle()
-actions.user.input_map_mode_revert()  # back to previous mode
+actions.user.input_map_mode_revert()
 actions.user.input_map_mode_get()
 ```
 
@@ -244,7 +269,6 @@ Instead of the context approach, you can use channels to have multiple input map
     actions.user.input_map_channel_mode_set("combat", "defensive")
     actions.user.input_map_channel_mode_cycle("combat")
     actions.user.input_map_channel_mode_revert("combat")
-    actions.user.input_map_channel_event_register("combat", on_input)
     actions.user.input_map_channel_unregister("combat")
     ```
 
