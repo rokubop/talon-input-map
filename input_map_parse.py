@@ -8,6 +8,30 @@ import inspect
 CONTEXT_KEYS = {"power", "f0", "f1", "f2", "x", "y", "value"}
 CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
 MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
+MODIFIER_SEPARATOR = " + "
+
+
+def has_modifier(key: str) -> bool:
+    """Check if an input key uses the cross-input modifier syntax ('a + b')."""
+    return MODIFIER_SEPARATOR in key
+
+
+def extract_modifier(key: str) -> tuple:
+    """Split 'pedal_left + pop' into ('pedal_left', 'pop').
+    Returns (modifier_name, activator_key)."""
+    parts = key.split(MODIFIER_SEPARATOR, 1)
+    return parts[0].strip(), parts[1].strip()
+
+
+def validate_modifier(name: str, base_pairs: set, edge_triggered_bases: set):
+    """Ensure a modifier name is stateful (has start/stop pair or edge-triggered conditions)."""
+    if name not in base_pairs and name not in edge_triggered_bases:
+        raise ValueError(
+            f"\nModifier '{name}' is not stateful. "
+            f"Modifiers must have a '_stop' pair or if/else edge-triggered conditions.\n"
+            f"Defined base_pairs: {base_pairs}\n"
+            f"Defined edge_triggered_bases: {edge_triggered_bases}\n"
+        )
 
 def validate_input_format(input_key: str):
     """Warn if an input key looks like it has a misformatted condition."""
@@ -281,6 +305,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     active_commands = []
     variable_commands = []
     conditional_commands = []
+    modifier_input_keys = []
 
     for input, action in commands.items():
         if not input or not isinstance(action, tuple) or len(action) < 2:
@@ -299,6 +324,10 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
                 )
         except ValueError as e:
             print(e)
+            continue
+
+        if has_modifier(input):
+            modifier_input_keys.append((input, action))
             continue
 
         if has_variables(input):
@@ -368,6 +397,35 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     validate_conditions_no_overlap(immediate_conditional)
     validate_conditions_no_overlap(delayed_conditional)
 
+    # Process deferred modifier keys (e.g. "pedal_left + pop", "gaze:x<500 + pop")
+    modifier_commands = {}
+    for raw_key, action in modifier_input_keys:
+        modifier_raw, activator_raw = extract_modifier(raw_key)
+
+        # Parse optional conditions from modifier side (e.g. "gaze:x<500" → "gaze", conditions)
+        modifier_conditions = None
+        if has_conditions(modifier_raw):
+            modifier_base, modifier_conditions = extract_conditions(modifier_raw)
+            modifier_base = get_base_input(modifier_base)[0]
+        else:
+            modifier_base = modifier_raw
+
+        validate_modifier(modifier_base, base_pairs, edge_triggered_bases)
+
+        activator_action = get_modified_action(activator_raw, action, throttle_busy, debounce_busy)
+        if context_ref is not None:
+            activator_action = wrap_with_context(activator_action, context_ref)
+
+        activator_base, activator_inputs = get_base_input(activator_raw)
+        for inp in activator_inputs:
+            base_input_set.add(inp)
+
+        modifier_commands.setdefault(activator_base, []).append(
+            (modifier_base, modifier_conditions, activator_action)
+        )
+
+    has_mods = bool(modifier_commands)
+
     has_vars = bool(immediate_variable_patterns or delayed_variable_patterns)
     has_conds = bool(immediate_conditional or delayed_conditional)
     has_edge = bool(edge_triggered_bases)
@@ -387,4 +445,6 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         "edge_triggered_bases": edge_triggered_bases,
         "edge_else_actions": edge_else_actions,
         "has_edge_triggered": has_edge,
+        "modifier_commands": modifier_commands,
+        "has_modifiers": has_mods,
     }

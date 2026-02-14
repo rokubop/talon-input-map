@@ -16,6 +16,7 @@ _REGION_ELSE = -1
 event_subscribers = []
 
 mod.setting("input_map_combo_window", type=int, default=300, desc="The time window to wait for a combo to complete")
+mod.setting("input_map_edge_debounce_ms", type=int, default=0, desc="Debounce ms for edge-triggered region transitions. 0 = off.")
 
 class InputMap():
     def __init__(self, input_map: dict = None, event_trigger: callable = None):
@@ -36,6 +37,11 @@ class InputMap():
         self._active_region = {}
         self.has_edge_triggered = False
         self.base_pairs = set()
+        self._edge_debounce_jobs = {}
+        self.edge_debounce_ms = 0
+        self.modifier_commands = {}
+        self.has_modifiers = False
+        self._held_inputs = {}
         self.combo_chain = ""
         self.combo_job = None
         self.base_inputs = None
@@ -94,6 +100,13 @@ class InputMap():
             self.base_inputs = cached["base_input_set"]
             self.base_pairs = cached["base_pairs"]
             self.unique_combos = cached["unique_combos"]
+            self.modifier_commands = cached["modifier_commands"]
+            self.has_modifiers = cached["has_modifiers"]
+            self._held_inputs = {}
+            self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
+            for job in self._edge_debounce_jobs.values():
+                cron.cancel(job)
+            self._edge_debounce_jobs = {}
             combo_window = settings.get("user.input_map_combo_window", 300)
             self.combo_window = f"{combo_window}ms"
             return
@@ -116,6 +129,13 @@ class InputMap():
         self.base_inputs = categorized["base_input_set"]
         self.base_pairs = categorized["base_pairs"]
         self.unique_combos = categorized["unique_combos"]
+        self.modifier_commands = categorized["modifier_commands"]
+        self.has_modifiers = categorized["has_modifiers"]
+        self._held_inputs = {}
+        self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
+        for job in self._edge_debounce_jobs.values():
+            cron.cancel(job)
+        self._edge_debounce_jobs = {}
 
         self._mode_cache[mode] = categorized
 
@@ -142,6 +162,8 @@ class InputMap():
         pending = self.pending_combo
         self.combo_chain = ""
         self.pending_combo = None
+        if self._try_modifier_dispatch(pending):
+            return
         # Try conditional first, fall through to unconditional
         if self.has_conditions and self._dispatch_conditional(pending, self.delayed_conditional):
             return
@@ -213,6 +235,28 @@ class InputMap():
         if new_region == prev_region:
             return True  # Consumed but suppressed (same region)
 
+        if self.edge_debounce_ms > 0:
+            # Cancel any pending debounce for this input_chain
+            pending_job = self._edge_debounce_jobs.get(input_chain)
+            if pending_job:
+                cron.cancel(pending_job)
+
+            def _apply_transition(chain=input_chain, region=new_region, action=matched_action):
+                self._edge_debounce_jobs.pop(chain, None)
+                # Re-check: region may have been superseded by a newer debounce
+                self._active_region[chain] = region
+                command = action[0]
+                action_func = action[1]
+                throttled = self._throttle_busy.get(chain)
+                action_func()
+                if not throttled:
+                    self._trigger_event(chain, command)
+
+            self._edge_debounce_jobs[input_chain] = cron.after(
+                f"{self.edge_debounce_ms}ms", _apply_transition
+            )
+            return True
+
         self._active_region[input_chain] = new_region
         command = matched_action[0]
         action_func = matched_action[1]
@@ -226,6 +270,35 @@ class InputMap():
         if self.has_edge_triggered and input_chain in self._edge_triggered_bases:
             return self._try_conditional_edge(input_chain, conditional_dict)
         return self._try_conditional(input_chain, conditional_dict)
+
+    def _is_modifier_active(self, modifier_name: str) -> bool:
+        """Check if a modifier input is currently active (held or in a non-else region)."""
+        if modifier_name in self._held_inputs:
+            return self._held_inputs[modifier_name]
+        if self.has_edge_triggered and modifier_name in self._edge_triggered_bases:
+            region = self._active_region.get(modifier_name)
+            return region is not None and region != _REGION_ELSE
+        return False
+
+    def _try_modifier_dispatch(self, input_chain: str) -> bool:
+        """Try to dispatch via cross-input modifier. Returns True if handled."""
+        if not self.has_modifiers:
+            return False
+        mod_entries = self.modifier_commands.get(input_chain)
+        if not mod_entries:
+            return False
+        for mod_name, conditions, action_tuple in mod_entries:
+            if self._is_modifier_active(mod_name):
+                if conditions is not None and not evaluate_conditions(conditions, self._context):
+                    continue
+                command = action_tuple[0]
+                action_func = action_tuple[1]
+                throttled = self._throttle_busy.get(input_chain)
+                action_func()
+                if not throttled:
+                    self._trigger_event(input_chain, command)
+                return True
+        return False
 
     def _try_variable_patterns(self, input_chain: str, pattern_dict: dict) -> bool:
         for pattern, action in pattern_dict.items():
@@ -356,6 +429,14 @@ class InputMap():
         if input_name not in self.base_inputs:
             return
 
+        if self.has_modifiers:
+            if input_name in self.base_pairs:
+                self._held_inputs[input_name] = True
+            elif input_name.endswith("_stop"):
+                base = input_name[:-5]
+                if base in self.base_pairs:
+                    self._held_inputs[base] = False
+
         if input_name in self.base_pairs:
             if self._debounce_busy.get(f"{input_name}_stop"):
                 cron.cancel(self._debounce_busy[f"{input_name}_stop"])
@@ -367,6 +448,11 @@ class InputMap():
             self.combo_job = None
 
         self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
+
+        if self._try_modifier_dispatch(self.combo_chain):
+            self.combo_chain = ""
+            self.pending_combo = None
+            return
 
         if self.combo_chain in self.delayed_commands or (self.has_conditions and self.combo_chain in self.delayed_conditional):
             if self.combo_chain in self.immediate_commands:

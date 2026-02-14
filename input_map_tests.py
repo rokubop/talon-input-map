@@ -7,6 +7,9 @@ from .input_map_parse import (
     match_variable_pattern,
     has_variables,
     has_conditions,
+    has_modifier,
+    extract_modifier,
+    validate_modifier,
     validate_variable_action,
     parse_condition,
     extract_conditions,
@@ -1644,6 +1647,462 @@ def test_handle_bool_single():
     _cleanup_single("test_bool_s_stop")
     print()
 
+def test_has_modifier():
+    print("Testing has_modifier...")
+
+    assert has_modifier("pedal_left + pop") == True
+    print("  ✓ 'pedal_left + pop' detected")
+
+    assert has_modifier("pop") == False
+    print("  ✓ 'pop' not a modifier")
+
+    assert has_modifier("pop cluck") == False
+    print("  ✓ 'pop cluck' not a modifier")
+
+    assert has_modifier("pedal_left + pop cluck") == True
+    print("  ✓ 'pedal_left + pop cluck' detected")
+
+    print()
+
+def test_extract_modifier():
+    print("Testing extract_modifier...")
+
+    mod, act = extract_modifier("pedal_left + pop")
+    assert mod == "pedal_left" and act == "pop", f"Failed: got {mod}, {act}"
+    print("  ✓ Simple modifier split")
+
+    mod, act = extract_modifier("pedal_left + pop cluck")
+    assert mod == "pedal_left" and act == "pop cluck", f"Failed: got {mod}, {act}"
+    print("  ✓ Modifier with combo activator")
+
+    print()
+
+def test_validate_modifier():
+    print("Testing validate_modifier...")
+
+    # Valid: in base_pairs
+    try:
+        validate_modifier("pedal_left", {"pedal_left"}, set())
+        print("  ✓ Valid modifier in base_pairs")
+    except ValueError:
+        assert False, "Should not raise for valid modifier"
+
+    # Valid: in edge_triggered_bases
+    try:
+        validate_modifier("gaze", set(), {"gaze"})
+        print("  ✓ Valid modifier in edge_triggered_bases")
+    except ValueError:
+        assert False, "Should not raise for valid edge modifier"
+
+    # Invalid: not stateful
+    try:
+        validate_modifier("pop", set(), set())
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        print("  ✓ Invalid modifier raises ValueError")
+
+    print()
+
+def test_modifier_held_basic():
+    print("Testing modifier held basic (start/stop)...")
+
+    executed = []
+    test_config = {
+        "pedal_left":       ("hold",    lambda: executed.append("hold")),
+        "pedal_left_stop":  ("release", lambda: executed.append("release")),
+        "pop":              ("click",   lambda: executed.append("click")),
+        "pedal_left + pop": ("mod click", lambda: executed.append("mod_click")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Pop without pedal held → normal action
+    input_map.execute("pop")
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Pop without modifier → normal")
+
+    # Hold pedal, then pop → modifier action
+    executed.clear()
+    input_map.execute("pedal_left")
+    input_map.execute("pop")
+    assert "mod_click" in executed, f"Failed: got {executed}"
+    print("  ✓ Pop while pedal held → modifier action")
+
+    # Release pedal, then pop → normal action
+    executed.clear()
+    input_map.execute("pedal_left_stop")
+    input_map.execute("pop")
+    assert executed == ["release", "click"], f"Failed: got {executed}"
+    print("  ✓ Pop after release → normal action")
+
+    print()
+
+def test_modifier_edge_triggered():
+    print("Testing modifier with edge-triggered conditions...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":      ("look left", lambda: executed.append("left")),
+        "gaze:x>=500":     ("look right", lambda: executed.append("right")),
+        "gaze:else":        ("neutral", lambda: executed.append("neutral")),
+        "pop":              ("click",   lambda: executed.append("click")),
+        "gaze + pop":       ("gaze click", lambda: executed.append("gaze_click")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Pop in neutral (else) → normal
+    input_map.execute("pop")
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Pop in neutral → normal")
+
+    # Enter left region, then pop → modifier
+    executed.clear()
+    input_map.execute("gaze", x=100.0)
+    input_map.execute("pop")
+    assert "gaze_click" in executed, f"Failed: got {executed}"
+    print("  ✓ Pop while gaze active → modifier action")
+
+    # Enter else region, then pop → normal
+    executed.clear()
+    input_map.execute("gaze", x=600.0)  # goes to right
+    input_map.execute("pop")
+    # gaze is in right region (not else), so modifier is active
+    assert "gaze_click" in executed, f"Failed: got {executed}"
+    print("  ✓ Pop while gaze in non-else region → modifier action")
+
+    print()
+
+def test_modifier_release_resets_held():
+    print("Testing modifier release resets held state...")
+
+    executed = []
+    test_config = {
+        "pedal_left":       ("hold",    lambda: executed.append("hold")),
+        "pedal_left_stop":  ("release", lambda: executed.append("release")),
+        "pop":              ("click",   lambda: executed.append("click")),
+        "pedal_left + pop": ("mod click", lambda: executed.append("mod_click")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Hold → pop (modifier) → release → pop (normal)
+    input_map.execute("pedal_left")
+    input_map.execute("pop")
+    assert "mod_click" in executed, f"Failed first: got {executed}"
+
+    executed.clear()
+    input_map.execute("pedal_left_stop")
+    input_map.execute("pop")
+    assert executed == ["release", "click"], f"Failed second: got {executed}"
+    print("  ✓ Hold → mod_click → release → normal click")
+
+    print()
+
+def test_modifier_with_combo_activator():
+    print("Testing modifier with combo activator...")
+
+    executed = []
+    test_config = {
+        "pedal_left":              ("hold",    lambda: executed.append("hold")),
+        "pedal_left_stop":         ("release", lambda: executed.append("release")),
+        "pop":                     ("click",   lambda: executed.append("click")),
+        "pop cluck":               ("combo",   lambda: executed.append("combo")),
+        "pedal_left + pop cluck":  ("mod combo", lambda: executed.append("mod_combo")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Hold pedal, then pop cluck → modifier combo
+    input_map.execute("pedal_left")
+    executed.clear()
+    input_map.execute("pop")
+    input_map.execute("cluck")
+    assert "mod_combo" in executed, f"Failed: got {executed}"
+    print("  ✓ Modifier with combo activator works")
+
+    print()
+
+def test_modifier_mode_switch_resets():
+    print("Testing modifier mode switch resets held state...")
+
+    executed = []
+    test_config = {
+        "default": {
+            "pedal_left":       ("hold",    lambda: executed.append("hold")),
+            "pedal_left_stop":  ("release", lambda: executed.append("release")),
+            "pop":              ("click",   lambda: executed.append("click")),
+            "pedal_left + pop": ("mod click", lambda: executed.append("mod_click")),
+        },
+        "other": {
+            "pop":              ("other click", lambda: executed.append("other_click")),
+        },
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Hold pedal in default mode
+    input_map.execute("pedal_left")
+
+    # Switch mode — should reset held state
+    input_map.setup_mode("other")
+    executed.clear()
+
+    input_map.execute("pop")
+    assert executed == ["other_click"], f"Failed: got {executed}"
+    print("  ✓ Mode switch resets _held_inputs")
+
+    print()
+
+def test_modifier_has_modifiers_false():
+    print("Testing has_modifiers=False when no + keys...")
+
+    test_config = {
+        "pop":  ("click",   lambda: None),
+        "hiss": ("scroll",  lambda: None),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    assert input_map.has_modifiers == False, f"Failed: has_modifiers should be False"
+    assert input_map._held_inputs == {}, f"Failed: _held_inputs should be empty"
+    print("  ✓ has_modifiers=False, zero overhead path")
+
+    print()
+
+def test_modifier_fallthrough():
+    print("Testing modifier fallthrough...")
+
+    executed = []
+    test_config = {
+        "pedal_left":       ("hold",    lambda: executed.append("hold")),
+        "pedal_left_stop":  ("release", lambda: executed.append("release")),
+        "pop":              ("click",   lambda: executed.append("click")),
+        "pedal_left + pop": ("mod click", lambda: executed.append("mod_click")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Without holding pedal, pop should fall through to normal
+    input_map.execute("pop")
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Modifier not active → falls through to normal dispatch")
+
+    print()
+
+def test_modifier_conditional():
+    print("Testing modifier with conditions on modifier side...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":       ("look left", lambda: executed.append("left")),
+        "gaze:x>=500":      ("look right", lambda: executed.append("right")),
+        "gaze:else":         ("neutral", lambda: executed.append("neutral")),
+        "pop":               ("click",   lambda: executed.append("click")),
+        "gaze:x<500 + pop":  ("left click", lambda: executed.append("left_click")),
+        "gaze:x>=500 + pop": ("right click", lambda: executed.append("right_click")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Pop in neutral → normal
+    input_map.execute("pop")
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Pop in neutral → normal click")
+
+    # Enter left region, then pop → left modifier
+    executed.clear()
+    input_map.execute("gaze", x=100.0)
+    input_map.execute("pop")
+    assert "left_click" in executed, f"Failed: got {executed}"
+    print("  ✓ Pop while gaze x<500 → left_click")
+
+    # Enter right region, then pop → right modifier
+    executed.clear()
+    input_map.execute("gaze", x=600.0)
+    input_map.execute("pop")
+    assert "right_click" in executed, f"Failed: got {executed}"
+    print("  ✓ Pop while gaze x>=500 → right_click")
+
+    # Back to else, then pop → normal
+    executed.clear()
+    input_map.execute("gaze")  # no x → else
+    input_map.execute("pop")
+    assert executed == ["neutral", "click"], f"Failed: got {executed}"
+    print("  ✓ Pop while gaze in else → normal click")
+
+    print()
+
+def test_modifier_parse_validation_error():
+    print("Testing modifier parse validation error...")
+
+    test_config = {
+        "pop":              ("click",   lambda: None),
+        "pop + cluck":      ("mod click", lambda: None),
+    }
+
+    try:
+        input_map = InputMap()
+        input_map.setup(test_config)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "not stateful" in str(e), f"Wrong error: {e}"
+        print("  ✓ Non-stateful modifier raises error")
+
+    print()
+
+def test_edge_debounce_delays_transition():
+    print("Testing edge debounce delays transition...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda: executed.append("left")),
+        "gaze:x>=500": ("look right", lambda: executed.append("right")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    input_map.edge_debounce_ms = 50
+
+    # Enter left region — should be delayed
+    input_map.execute("gaze", x=100.0)
+    assert executed == [], f"Failed: should be delayed, got {executed}"
+    print("  ✓ Transition delayed")
+
+    # After debounce, should fire
+    actions.sleep("60ms")
+    assert executed == ["left"], f"Failed: got {executed}"
+    print("  ✓ Fires after debounce window")
+
+    print()
+
+def test_edge_debounce_flicker_settles():
+    print("Testing edge debounce flicker settles...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda: executed.append("left")),
+        "gaze:x>=500": ("look right", lambda: executed.append("right")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    input_map.edge_debounce_ms = 50
+
+    # Rapid flicker: left → right → left (within debounce window)
+    input_map.execute("gaze", x=100.0)
+    input_map.execute("gaze", x=600.0)
+    input_map.execute("gaze", x=200.0)
+    assert executed == [], f"Failed: should all be delayed, got {executed}"
+
+    actions.sleep("60ms")
+    # Should settle to the last value (left, since x=200 < 500)
+    assert executed == ["left"], f"Failed: should settle to left, got {executed}"
+    print("  ✓ Flicker settles to final state")
+
+    print()
+
+def test_edge_debounce_active_region_stable():
+    print("Testing edge debounce active_region stable during window...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda: executed.append("left")),
+        "gaze:x>=500": ("look right", lambda: executed.append("right")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    input_map.edge_debounce_ms = 50
+
+    # First, establish a region without debounce to set baseline
+    input_map.edge_debounce_ms = 0
+    input_map.execute("gaze", x=100.0)
+    assert executed == ["left"], f"Setup failed: got {executed}"
+    assert input_map._active_region.get("gaze") == 0  # left region index
+
+    # Now enable debounce and trigger transition
+    input_map.edge_debounce_ms = 50
+    executed.clear()
+    input_map.execute("gaze", x=600.0)
+
+    # During debounce window, _active_region should still be old value
+    assert input_map._active_region.get("gaze") == 0, f"Failed: region changed during debounce"
+    print("  ✓ _active_region retains old value during debounce")
+
+    actions.sleep("60ms")
+    assert input_map._active_region.get("gaze") == 1, f"Failed: region not updated after debounce"
+    print("  ✓ _active_region updated after debounce resolves")
+
+    print()
+
+def test_edge_debounce_zero_unchanged():
+    print("Testing edge debounce ms=0 unchanged behavior...")
+
+    executed = []
+    test_config = {
+        "gaze:x<500":  ("look left", lambda: executed.append("left")),
+        "gaze:x>=500": ("look right", lambda: executed.append("right")),
+        "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    # edge_debounce_ms defaults to 0
+
+    input_map.execute("gaze", x=100.0)
+    assert executed == ["left"], f"Failed: got {executed}"
+    print("  ✓ Immediate transition with debounce=0")
+
+    input_map.execute("gaze", x=600.0)
+    assert executed == ["left", "right"], f"Failed: got {executed}"
+    print("  ✓ Second transition immediate with debounce=0")
+
+    print()
+
+def test_edge_debounce_mode_switch_cancels():
+    print("Testing edge debounce mode switch cancels pending jobs...")
+
+    executed = []
+    test_config = {
+        "default": {
+            "gaze:x<500":  ("look left", lambda: executed.append("left")),
+            "gaze:x>=500": ("look right", lambda: executed.append("right")),
+            "gaze:else":   ("neutral", lambda: executed.append("neutral")),
+        },
+        "other": {
+            "pop": ("click", lambda: executed.append("click")),
+        },
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    input_map.edge_debounce_ms = 50
+
+    # Trigger a debounced transition
+    input_map.execute("gaze", x=100.0)
+    assert executed == [], f"Failed: should be delayed, got {executed}"
+
+    # Switch mode — should cancel pending debounce jobs
+    input_map.setup_mode("other")
+
+    actions.sleep("60ms")
+    assert executed == [], f"Failed: debounce should have been cancelled, got {executed}"
+    print("  ✓ Mode switch cancels pending debounce jobs")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -1739,6 +2198,29 @@ def run_tests():
     test_handle_bool_basic()
     test_handle_bool_channel()
     test_handle_bool_single()
+
+    # Cross-input modifier tests (unit)
+    test_has_modifier()
+    test_extract_modifier()
+    test_validate_modifier()
+
+    # Cross-input modifier tests (integration)
+    test_modifier_held_basic()
+    test_modifier_edge_triggered()
+    test_modifier_release_resets_held()
+    test_modifier_with_combo_activator()
+    test_modifier_mode_switch_resets()
+    test_modifier_has_modifiers_false()
+    test_modifier_fallthrough()
+    test_modifier_conditional()
+    test_modifier_parse_validation_error()
+
+    # Edge debounce tests
+    test_edge_debounce_delays_transition()
+    test_edge_debounce_flicker_settles()
+    test_edge_debounce_active_region_stable()
+    test_edge_debounce_zero_unchanged()
+    test_edge_debounce_mode_switch_cancels()
 
     print()
     print("=" * 50)

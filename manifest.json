@@ -19,7 +19,8 @@
   "devDependencies": {},
   "contributes": {
     "settings": [
-      "user.input_map_combo_window"
+      "user.input_map_combo_window",
+      "user.input_map_edge_debounce_ms"
     ],
     "actions": [
       "user.input_map",

@@ -13,6 +13,7 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - debounce
 - variable inputs
 - greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, or `value`
+- cross-input modifiers
 
 > Formerly known as `parrot_config`.
 
@@ -41,9 +42,10 @@ git clone https://github.com/rokubop/talon-input-map/
 "pop:power>10":       ("loud",    lambda: actions.user.strong_click())   # condition
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
+"pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
 ```
 
-[Modes](#modes) | [Single](#single) | [Options](#options) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
+[Modes](#modes) | [Single](#single) | [Options](#options) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
 
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
@@ -216,6 +218,37 @@ noise.register("hiss", lambda active: actions.user.input_map_handle_bool("hiss",
 "hiss_stop": ("stop",   lambda: None),
 ```
 Maps `True` to `"hiss"`, `False` to `"hiss_stop"`.
+
+**Cross-input modifier**
+```py
+"pedal_left":           ("hold",    lambda: actions.user.hold_action()),
+"pedal_left_stop":      ("release", lambda: actions.user.release_action()),
+"pop":                  ("click",   lambda: actions.mouse_click(0)),
+"pedal_left + pop":     ("R click", lambda: actions.mouse_click(1)),   # pop while pedal held
+```
+The left side of `+` is the **modifier** — must be stateful (has a `_stop` pair or if/else edge-triggered conditions). The right side is the **activator** — the discrete event. When the modifier is active, the modifier action fires instead of the normal action. When not active, the normal action fires.
+
+Works with edge-triggered modifiers too:
+```py
+"gaze:x<-0.5":    ("look left",  lambda: ...),
+"gaze:else":       ("neutral",    lambda: ...),
+"gaze + pop":      ("gaze click", lambda: actions.mouse_click(1)),  # pop while gaze active (non-else)
+```
+
+Conditions on the modifier side target specific regions:
+```py
+"gaze:x<500 + pop":  ("left click",  lambda: actions.mouse_click(0)),  # pop while gaze x<500
+"gaze:x>=500 + pop": ("right click", lambda: actions.mouse_click(1)),  # pop while gaze x>=500
+```
+
+**Edge debounce**
+
+Stabilize edge-triggered region transitions to prevent flicker:
+```py
+settings():
+    user.input_map_edge_debounce_ms = 50
+```
+When set, region transitions are delayed by the specified ms. Rapid flicker within the debounce window settles to the final state. `_active_region` retains the old value during the window. Default is `0` (off, identical to current behavior).
 
 **Composing modifiers**
 
