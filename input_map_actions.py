@@ -473,11 +473,11 @@ class Actions:
         """
         single_handle(name if active else f"{name}_stop", map)
 
-    def input_map_single_mode_set(name: str, mode: str):
+    def input_map_single_mode_set(name: str, mode: str, map: dict = None):
         """
-        Set the mode for a single input.
+        Set the mode for a single input. Optionally pass map to auto-register.
         """
-        single_mode_set(name, mode)
+        single_mode_set(name, mode, map)
 
     def input_map_single_mode_get(name: str) -> str:
         """

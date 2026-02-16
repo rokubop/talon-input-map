@@ -76,10 +76,15 @@ def single_handle(
     _singles[name].execute(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
 
-def single_mode_set(name: str, mode: str):
-    """Set the mode for a single input."""
+def single_mode_set(name: str, mode: str, user_map: dict = None):
+    """Set the mode for a single input. Optionally pass user_map to auto-register."""
     if name not in _singles:
-        raise ValueError(f"Single '{name}' not registered")
+        if user_map is not None:
+            _register_single(name, user_map)
+        else:
+            raise ValueError(f"Single '{name}' not registered")
+    elif user_map is not None and _singles_map_ref[name] is not user_map:
+        _register_single(name, user_map)
     instance = _singles[name]
     if mode in instance.input_map_user_ref:
         instance.setup_mode(mode)
