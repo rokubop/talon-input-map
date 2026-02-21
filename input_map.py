@@ -289,8 +289,12 @@ class InputMap():
             return False
         for mod_name, conditions, action_tuple in mod_entries:
             if self._is_modifier_active(mod_name):
-                if conditions is not None and not evaluate_conditions(conditions, self._context):
-                    continue
+                if conditions is not None:
+                    if self.has_edge_triggered and mod_name in self._edge_triggered_bases:
+                        if not self._modifier_matches_active_region(mod_name, conditions):
+                            continue
+                    elif not evaluate_conditions(conditions, self._context):
+                        continue
                 command = action_tuple[0]
                 action_func = action_tuple[1]
                 throttled = self._throttle_busy.get(input_chain)
@@ -299,6 +303,17 @@ class InputMap():
                     self._trigger_event(input_chain, command)
                 return True
         return False
+
+    def _modifier_matches_active_region(self, mod_name: str, conditions: list) -> bool:
+        """Check if modifier conditions match the currently active edge-triggered region."""
+        active_idx = self._active_region.get(mod_name)
+        if active_idx is None or active_idx == _REGION_ELSE:
+            return False
+        cond_entries = self.immediate_conditional.get(mod_name) or self.delayed_conditional.get(mod_name, [])
+        if active_idx >= len(cond_entries):
+            return False
+        region_conds = cond_entries[active_idx][0]
+        return frozenset(conditions) == frozenset(region_conds)
 
     def _try_variable_patterns(self, input_chain: str, pattern_dict: dict) -> bool:
         for pattern, action in pattern_dict.items():
@@ -503,10 +518,23 @@ def input_map_throttle(time_ms: int, single_input: str, command: callable, throt
     cron.after(f"{time_ms}ms", lambda: throttle_busy.__setitem__(single_input, False))
 
 def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: dict):
-    """Debounce"""
+    """Debounce. For start/stop pairs, if the counterpart has a pending debounce
+    when this one fires, cancel both (the pair was too brief to count)."""
     if debounce_busy.get(id):
         cron.cancel(debounce_busy[id])
-    debounce_busy[id] = cron.after(f"{time_ms}ms", lambda: (command(), debounce_busy.__setitem__(id, False)))
+
+    def _fire():
+        counterpart = id[:-5] if id.endswith("_stop") else f"{id}_stop"
+        pending = debounce_busy.get(counterpart)
+        if pending:
+            cron.cancel(pending)
+            debounce_busy[counterpart] = False
+            debounce_busy[id] = False
+            return
+        command()
+        debounce_busy[id] = False
+
+    debounce_busy[id] = cron.after(f"{time_ms}ms", _fire)
 
 def input_map_handle(
     input_name: str,

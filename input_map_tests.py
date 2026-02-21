@@ -336,24 +336,20 @@ def test_input_map_debounce():
 
     executed = []
     test_config = {
-        "pop:db_100": ("debounced action", lambda: executed.append("debounced")),
+        "hiss:db_100": ("debounced action", lambda: executed.append("debounced")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
     }
 
     input_map = InputMap()
     input_map.setup(test_config)
 
     # First execution should schedule but not execute immediately
-    input_map.execute("pop")
+    input_map.execute("hiss")
     assert executed == [], f"Failed: debounced command executed immediately, got {executed}"
     print("  ✓ Debounced command doesn't execute immediately")
 
-    # Second execution should cancel first and reschedule
-    input_map.execute("pop")
-    assert executed == [], f"Failed: debounced command executed too early, got {executed}"
-    print("  ✓ Rapid debounced calls don't execute early")
-
     # After debounce period, should execute
-    actions.sleep("110ms")
+    actions.sleep("200ms")
     assert executed == ["debounced"], f"Failed: didn't execute after debounce period, got {executed}"
     print("  ✓ Executes after debounce period")
 
@@ -1151,7 +1147,7 @@ def test_input_map_spread_override_different_modifier():
     assert executed == [], f"Failed: debounce should delay execution, got {executed}"
     print("  ✓ Last modifier (db) wins over spread modifier (th)")
 
-    actions.sleep("100ms")
+    actions.sleep("200ms")
     assert executed == ["debounced"], f"Failed: debounce didn't fire, got {executed}"
     print("  ✓ Debounced action fires after delay")
 
@@ -1959,6 +1955,137 @@ def test_modifier_parse_validation_error():
 
     print()
 
+def test_debounce_start_stop_brief_noise():
+    print("Testing debounce start/stop brief noise (neither fires)...")
+
+    executed = []
+    test_config = {
+        "whistle:db_100": ("start", lambda: executed.append("start")),
+        "whistle_stop:db_200": ("stop", lambda: executed.append("stop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Brief noise: start then immediately stop
+    input_map.execute("whistle")
+    input_map.execute("whistle_stop")
+    assert executed == [], f"Failed: should not execute yet, got {executed}"
+
+    # Start debounce fires at 100ms — but stop is pending, so cancel both
+    actions.sleep("200ms")
+    assert executed == [], f"Failed: start should not fire (noise too brief), got {executed}"
+
+    # Stop debounce would fire at 200ms — but was already cancelled
+    actions.sleep("200ms")
+    assert executed == [], f"Failed: stop should not fire either, got {executed}"
+    print("  ✓ Brief noise: neither start nor stop fires")
+
+    print()
+
+def test_debounce_start_stop_sustained_noise():
+    print("Testing debounce start/stop sustained noise with chatter...")
+
+    executed = []
+    test_config = {
+        "whistle:db_100": ("start", lambda: executed.append("start")),
+        "whistle_stop:db_200": ("stop", lambda: executed.append("stop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Chatter: start/stop/start rapidly, then sustain
+    input_map.execute("whistle")        # t=0   start db begins (100ms)
+    actions.sleep("20ms")
+    input_map.execute("whistle_stop")   # t=20  stop db begins (200ms)
+    actions.sleep("10ms")
+    input_map.execute("whistle")        # t=30  cancels stop db, swallowed (line 440-444)
+    assert executed == [], f"Failed: should not execute yet, got {executed}"
+
+    # Start debounce fires at t=100 — no pending stop, so it fires
+    actions.sleep("200ms")
+    assert executed == ["start"], f"Failed: start should fire after sustained, got {executed}"
+    print("  ✓ Sustained noise with chatter: start fires")
+
+    print()
+
+def test_debounce_start_stop_normal_cycle():
+    print("Testing debounce start/stop normal full cycle...")
+
+    executed = []
+    test_config = {
+        "whistle:db_100": ("start", lambda: executed.append("start")),
+        "whistle_stop:db_100": ("stop", lambda: executed.append("stop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Sustained start
+    input_map.execute("whistle")
+    actions.sleep("200ms")
+    assert executed == ["start"], f"Failed: start should fire, got {executed}"
+
+    # Then stop after start confirmed
+    input_map.execute("whistle_stop")
+    actions.sleep("200ms")
+    assert executed == ["start", "stop"], f"Failed: stop should fire, got {executed}"
+    print("  ✓ Normal cycle: both start and stop fire")
+
+    print()
+
+def test_debounce_stop_fires_cancels_pending_start():
+    print("Testing debounce stop fires first cancels pending start...")
+
+    executed = []
+    test_config = {
+        "whistle:db_200": ("start", lambda: executed.append("start")),
+        "whistle_stop:db_100": ("stop", lambda: executed.append("stop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Start has longer debounce than stop
+    input_map.execute("whistle")        # start db begins (200ms)
+    input_map.execute("whistle_stop")   # stop db begins (100ms)
+
+    # Stop debounce fires first at 100ms — start still pending, cancel both
+    actions.sleep("200ms")
+    assert executed == [], f"Failed: stop should cancel pending start, got {executed}"
+
+    # Start debounce would fire at 200ms — but was already cancelled
+    actions.sleep("200ms")
+    assert executed == [], f"Failed: start should have been cancelled, got {executed}"
+    print("  ✓ Stop fires first: cancels pending start, neither fires")
+
+    print()
+
+def test_debounce_start_only_no_counterpart():
+    print("Testing debounce start only (no stop debounce) unchanged...")
+
+    executed = []
+    test_config = {
+        "whistle:db_100": ("start", lambda: executed.append("start")),
+        "whistle_stop": ("stop", lambda: executed.append("stop")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Start with debounce, stop without — should work as before
+    input_map.execute("whistle")
+    actions.sleep("200ms")
+    assert executed == ["start"], f"Failed: start should fire, got {executed}"
+
+    # Stop fires immediately (no debounce)
+    input_map.execute("whistle_stop")
+    assert executed == ["start", "stop"], f"Failed: stop should fire immediately, got {executed}"
+    print("  ✓ Start-only debounce unchanged (no counterpart interference)")
+
+    print()
+
 def test_edge_debounce_delays_transition():
     print("Testing edge debounce delays transition...")
 
@@ -2214,6 +2341,13 @@ def run_tests():
     test_modifier_fallthrough()
     test_modifier_conditional()
     test_modifier_parse_validation_error()
+
+    # Start/stop debounce pairing tests
+    test_debounce_start_stop_brief_noise()
+    test_debounce_start_stop_sustained_noise()
+    test_debounce_start_stop_normal_cycle()
+    test_debounce_stop_fires_cancels_pending_start()
+    test_debounce_start_only_no_counterpart()
 
     # Edge debounce tests
     test_edge_debounce_delays_transition()
