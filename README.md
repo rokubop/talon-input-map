@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-0.6.1-blue)
+![Version](https://img.shields.io/badge/version-0.7.0-blue)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -36,8 +36,8 @@ git clone https://github.com/rokubop/talon-input-map/
 ```py
 "pop":                ("click",   lambda: actions.mouse_click(0))        # basic
 "pop cluck":          ("combo",   lambda: actions.mouse_click(2))        # combo
-"hiss:th_90":         ("scroll",  lambda: actions.user.scroll_down())    # throttle
-"hiss_stop:db_100":   ("stop",    lambda: None)                          # debounce
+"hiss:th_90":         ("scroll",  lambda: actions.user.scroll_down())    # throttle 90ms
+"hiss_stop:db_100":   ("stop",    lambda: None)                          # debounce 100ms
 "tut $noise":         ("reverse", lambda noise: reverse(noise))          # variable
 "pop:power>10":       ("loud",    lambda: actions.user.strong_click())   # condition
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback

@@ -5,8 +5,8 @@ This module handles setup-time processing (cold path).
 import re
 import inspect
 
-CONTEXT_KEYS = {"power", "f0", "f1", "f2", "x", "y", "value"}
-CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
+CONTEXT_KEYS = {"power", "f0", "f1", "f2", "x", "y", "value", "dur"}
+CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value|dur)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
 MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
 MODIFIER_SEPARATOR = " + "
 
@@ -28,7 +28,7 @@ def validate_modifier(name: str, base_pairs: set, edge_triggered_bases: set):
     if name not in base_pairs and name not in edge_triggered_bases:
         raise ValueError(
             f"\nModifier '{name}' is not stateful. "
-            f"Modifiers must have a '_stop' pair or if/else edge-triggered conditions.\n"
+            f"Modifiers must have a '_stop' or '_up' pair or if/else edge-triggered conditions.\n"
             f"Defined base_pairs: {base_pairs}\n"
             f"Defined edge_triggered_bases: {edge_triggered_bases}\n"
         )
@@ -39,13 +39,13 @@ def validate_input_format(input_key: str):
     for part in base.split():
         if MISFORMATTED_CONDITION_PATTERN.search(part):
             match = re.match(r'^(.*?)(>=|<=|==|!=|>|<)(.*)', part)
-            if match and match.group(1) not in ('power', 'f0', 'f1', 'f2', 'x', 'y', 'value'):
+            if match and match.group(1) not in ('power', 'f0', 'f1', 'f2', 'x', 'y', 'value', 'dur'):
                 print(
                     f"\nWarning: '{input_key}' looks like it contains a condition "
                     f"but '{match.group(1)}' is not a condition variable.\n"
                     f"Did you mean: '{match.group(1)}:value{match.group(2)}{match.group(3)}'?\n"
                     f"Valid condition format: 'input_name:variable>threshold'\n"
-                    f"Valid variables: power, f0, f1, f2, x, y, value\n"
+                    f"Valid variables: power, f0, f1, f2, x, y, value, dur\n"
                 )
 
 def parse_condition(segment: str):
@@ -339,8 +339,12 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
             cleaned_key, conditions = extract_conditions(input)
             base_combo, base_inputs = get_base_input(cleaned_key)
 
-            if "_stop" in cleaned_key and len(base_inputs) == 1:
-                base_pairs.add(base_inputs[0].replace("_stop", ""))
+            if len(base_inputs) == 1:
+                inp0 = base_inputs[0]
+                if inp0.endswith("_stop"):
+                    base_pairs.add(inp0[:-5])
+                elif inp0.endswith("_up"):
+                    base_pairs.add(inp0[:-3])
 
             if len(base_inputs) > 1:
                 unique_combos.add(base_combo)
@@ -357,8 +361,12 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
             validate_input_format(input)
             base_combo, base_inputs = get_base_input(input)
 
-            if "_stop" in input and len(base_inputs) == 1:
-                base_pairs.add(base_inputs[0].replace("_stop", ""))
+            if len(base_inputs) == 1:
+                inp0 = base_inputs[0]
+                if inp0.endswith("_stop"):
+                    base_pairs.add(inp0[:-5])
+                elif inp0.endswith("_up"):
+                    base_pairs.add(inp0[:-3])
 
             if len(base_inputs) > 1:
                 unique_combos.add(base_combo)
@@ -430,6 +438,33 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     has_conds = bool(immediate_conditional or delayed_conditional)
     has_edge = bool(edge_triggered_bases)
 
+    # Check if any condition uses the 'dur' variable
+    has_dur = False
+    for entries in list(immediate_conditional.values()) + list(delayed_conditional.values()):
+        for conditions, _ in entries:
+            if any(var == "dur" for var, _, _ in conditions):
+                has_dur = True
+                break
+        if has_dur:
+            break
+    # Also scan raw command keys for dur conditions (catches keys before extraction)
+    if not has_dur:
+        for key in commands:
+            if ":dur" in key:
+                has_dur = True
+                break
+    # Also check if any action lambda takes dur as a param
+    if not has_dur:
+        for action in commands.values():
+            if isinstance(action, tuple) and len(action) >= 2 and callable(action[1]):
+                try:
+                    sig = inspect.signature(action[1])
+                    if "dur" in sig.parameters:
+                        has_dur = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+
     return {
         "immediate_commands": immediate_commands,
         "delayed_commands": delayed_commands,
@@ -447,4 +482,5 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         "has_edge_triggered": has_edge,
         "modifier_commands": modifier_commands,
         "has_modifiers": has_mods,
+        "has_dur": has_dur,
     }

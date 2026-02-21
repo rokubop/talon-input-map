@@ -2230,6 +2230,126 @@ def test_edge_debounce_mode_switch_cancels():
 
     print()
 
+def test_dur_up_creates_base_pairs():
+    print("Testing dur _up creates base_pairs...")
+
+    from .input_map_parse import categorize_commands
+
+    test_config = {
+        "left": ("press", lambda: None),
+        "left_up": ("release", lambda: None),
+    }
+
+    result = categorize_commands(test_config, {}, {})
+    assert "left" in result["base_pairs"], f"Failed: _up suffix should create base pair, got {result['base_pairs']}"
+    print("  ✓ _up suffix triggers base_pairs detection")
+
+    print()
+
+def test_dur_basic_up():
+    print("Testing dur basic _up (tap vs hold)...")
+
+    import time
+
+    executed = []
+    test_config = {
+        "left": ("press", lambda: None),
+        "left_up:dur<300": ("tap", lambda: executed.append("tap")),
+        "left_up:dur>=300": ("hold", lambda: executed.append("hold")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Tap: quick press and release
+    input_map.execute("left")
+    actions.sleep("50ms")
+    input_map.execute("left_up")
+    assert executed == ["tap"], f"Failed: expected tap, got {executed}"
+    print("  ✓ Quick tap (dur<300) detected")
+
+    # Hold: long press and release
+    executed.clear()
+    input_map.execute("left")
+    actions.sleep("350ms")
+    input_map.execute("left_up")
+    assert executed == ["hold"], f"Failed: expected hold, got {executed}"
+    print("  ✓ Long hold (dur>=300) detected")
+
+    print()
+
+def test_dur_basic_stop():
+    print("Testing dur basic _stop...")
+
+    executed = []
+    test_config = {
+        "hiss": ("start", lambda: None),
+        "hiss_stop:dur<300": ("brief", lambda: executed.append("brief")),
+        "hiss_stop:dur>=300": ("sustained", lambda: executed.append("sustained")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Brief hiss
+    input_map.execute("hiss")
+    actions.sleep("50ms")
+    input_map.execute("hiss_stop")
+    assert executed == ["brief"], f"Failed: expected brief, got {executed}"
+    print("  ✓ Brief hiss (dur<300) detected via _stop")
+
+    # Sustained hiss
+    executed.clear()
+    input_map.execute("hiss")
+    actions.sleep("350ms")
+    input_map.execute("hiss_stop")
+    assert executed == ["sustained"], f"Failed: expected sustained, got {executed}"
+    print("  ✓ Sustained hiss (dur>=300) detected via _stop")
+
+    print()
+
+def test_dur_none_for_non_pair():
+    print("Testing dur None for non-pair events...")
+
+    executed = []
+    test_config = {
+        "left": ("press", lambda: None),
+        "left_up:dur<300": ("tap", lambda: executed.append("tap")),
+        "left_up:dur>=300": ("hold", lambda: executed.append("hold")),
+        "pop": ("click", lambda: executed.append("click")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Pop has no start pair, so dur should be None and no dur condition should match
+    input_map.execute("pop")
+    assert executed == ["click"], f"Failed: got {executed}"
+    print("  ✓ Non-pair event executes normally (dur=None, conditions don't match)")
+
+    print()
+
+def test_dur_context_param_injection():
+    print("Testing dur context param injection...")
+
+    executed = []
+    test_config = {
+        "left": ("press", lambda: None),
+        "left_up:dur<300": ("tap", lambda dur: executed.append(f"tap_dur={dur is not None}")),
+        "left_up:dur>=300": ("hold", lambda dur: executed.append(f"hold_dur={dur is not None}")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("left")
+    actions.sleep("50ms")
+    input_map.execute("left_up")
+    assert executed == ["tap_dur=True"], f"Failed: got {executed}"
+    print("  ✓ dur received as lambda param via wrap_with_context")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2355,6 +2475,13 @@ def run_tests():
     test_edge_debounce_active_region_stable()
     test_edge_debounce_zero_unchanged()
     test_edge_debounce_mode_switch_cancels()
+
+    # Duration (dur) tests
+    test_dur_up_creates_base_pairs()
+    test_dur_basic_up()
+    test_dur_basic_stop()
+    test_dur_none_for_non_pair()
+    test_dur_context_param_injection()
 
     print()
     print("=" * 50)

@@ -1,6 +1,7 @@
 """
 Core InputMap class and runtime execution logic (hot path).
 """
+import time
 from talon import Module, actions, cron, settings
 from .input_map_parse import (
     categorize_commands,
@@ -42,6 +43,8 @@ class InputMap():
         self.modifier_commands = {}
         self.has_modifiers = False
         self._held_inputs = {}
+        self.has_dur = False
+        self._start_timestamps = {}
         self.combo_chain = ""
         self.combo_job = None
         self.base_inputs = None
@@ -102,7 +105,9 @@ class InputMap():
             self.unique_combos = cached["unique_combos"]
             self.modifier_commands = cached["modifier_commands"]
             self.has_modifiers = cached["has_modifiers"]
+            self.has_dur = cached["has_dur"]
             self._held_inputs = {}
+            self._start_timestamps = {}
             self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
             for job in self._edge_debounce_jobs.values():
                 cron.cancel(job)
@@ -131,7 +136,9 @@ class InputMap():
         self.unique_combos = categorized["unique_combos"]
         self.modifier_commands = categorized["modifier_commands"]
         self.has_modifiers = categorized["has_modifiers"]
+        self.has_dur = categorized["has_dur"]
         self._held_inputs = {}
+        self._start_timestamps = {}
         self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
         for job in self._edge_debounce_jobs.values():
             cron.cancel(job)
@@ -361,6 +368,7 @@ class InputMap():
                 if last_input in self.base_pairs:
                     input_map_throttle(90, last_input, lambda: None, self._throttle_busy)
                     input_map_throttle(90, f"{last_input}_stop", lambda: None, self._throttle_busy)
+                    input_map_throttle(90, f"{last_input}_up", lambda: None, self._throttle_busy)
         finally:
             if clear_chain:
                 self.combo_chain = ""
@@ -438,10 +446,29 @@ class InputMap():
         y: float = None,
         value: float = None
     ):
-        # Store input context for actions and condition evaluation
-        self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+        # Compute dur if this input map uses dur conditions
+        if self.has_dur:
+            dur = None
+            if input_name.endswith("_stop"):
+                base = input_name[:-5]
+                start_time = self._start_timestamps.pop(base, None)
+                if start_time is not None:
+                    dur = (time.monotonic() - start_time) * 1000
+            elif input_name.endswith("_up"):
+                base = input_name[:-3]
+                start_time = self._start_timestamps.pop(base, None)
+                if start_time is not None:
+                    dur = (time.monotonic() - start_time) * 1000
+            self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value, dur=dur)
+        else:
+            # Store input context for actions and condition evaluation
+            self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
         if input_name not in self.base_inputs:
+            # Record start timestamp even if input not in base_inputs
+            # (the start event itself may not be mapped, only the _up/_stop)
+            if self.has_dur and input_name in self.base_pairs:
+                self._start_timestamps[input_name] = time.monotonic()
             return
 
         if self.has_modifiers:
@@ -451,11 +478,21 @@ class InputMap():
                 base = input_name[:-5]
                 if base in self.base_pairs:
                     self._held_inputs[base] = False
+            elif input_name.endswith("_up"):
+                base = input_name[:-3]
+                if base in self.base_pairs:
+                    self._held_inputs[base] = False
 
         if input_name in self.base_pairs:
-            if self._debounce_busy.get(f"{input_name}_stop"):
-                cron.cancel(self._debounce_busy[f"{input_name}_stop"])
+            stop_busy = self._debounce_busy.get(f"{input_name}_stop")
+            up_busy = self._debounce_busy.get(f"{input_name}_up")
+            if stop_busy:
+                cron.cancel(stop_busy)
                 self._debounce_busy[f"{input_name}_stop"] = False
+                return
+            if up_busy:
+                cron.cancel(up_busy)
+                self._debounce_busy[f"{input_name}_up"] = False
                 return
 
         if self.combo_job:
@@ -506,6 +543,10 @@ class InputMap():
         else:
             self._execute_potential_combo()
 
+        # Record start timestamp for dur computation (gated)
+        if self.has_dur and input_name in self.base_pairs:
+            self._start_timestamps[input_name] = time.monotonic()
+
 # todo: try using the user's direct reference instead
 input_map_saved = InputMap()
 
@@ -524,13 +565,21 @@ def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: 
         cron.cancel(debounce_busy[id])
 
     def _fire():
-        counterpart = id[:-5] if id.endswith("_stop") else f"{id}_stop"
-        pending = debounce_busy.get(counterpart)
-        if pending:
-            cron.cancel(pending)
-            debounce_busy[counterpart] = False
-            debounce_busy[id] = False
-            return
+        if id.endswith("_stop"):
+            counterpart = id[:-5]
+        elif id.endswith("_up"):
+            counterpart = id[:-3]
+        else:
+            counterpart = None
+        # Check counterparts: for start events, check both _stop and _up
+        counterparts = [counterpart] if counterpart else [f"{id}_stop", f"{id}_up"]
+        for cp in counterparts:
+            pending = debounce_busy.get(cp)
+            if pending:
+                cron.cancel(pending)
+                debounce_busy[cp] = False
+                debounce_busy[id] = False
+                return
         command()
         debounce_busy[id] = False
 
