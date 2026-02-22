@@ -16,9 +16,6 @@ _REGION_ELSE = -1
 
 event_subscribers = []
 
-mod.setting("input_map_combo_window", type=int, default=300, desc="The time window to wait for a combo to complete")
-mod.setting("input_map_edge_debounce_ms", type=int, default=0, desc="Debounce ms for edge-triggered region transitions. 0 = off.")
-
 class InputMap():
     def __init__(self, input_map: dict = None, event_trigger: callable = None):
         self.input_map_user_ref = None
