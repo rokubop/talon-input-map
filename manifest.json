@@ -53,6 +53,7 @@
       "user.input_map_mode_get",
       "user.input_map_mode_revert",
       "user.input_map_mode_set",
+      "user.input_map_reset",
       "user.input_map_single",
       "user.input_map_single_bool",
       "user.input_map_single_get_legend",

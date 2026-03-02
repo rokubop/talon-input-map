@@ -8,6 +8,7 @@ from .input_map import (
     input_map_event_register,
     input_map_event_unregister,
     input_map_get,
+    input_map_reset,
 )
 from .input_map_channel import (
     channel_register,
@@ -265,6 +266,20 @@ class Actions:
         ```
         """
         return input_map_get(mode)
+
+    def input_map_reset():
+        """
+        Reset cached input map so the next handle call re-reads fresh.
+
+        Useful when the input map may have changed while inactive
+        (e.g. code edits between game sessions).
+
+        Example:
+        ```py
+        actions.user.input_map_reset()
+        ```
+        """
+        input_map_reset()
 
     # Channel-based input map actions
 

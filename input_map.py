@@ -547,6 +547,10 @@ class InputMap():
 # todo: try using the user's direct reference instead
 input_map_saved = InputMap()
 
+def input_map_reset():
+    input_map_saved.input_map_user_ref = None
+    input_map_saved._mode_cache = {}
+
 def input_map_throttle(time_ms: int, single_input: str, command: callable, throttle_busy: dict):
     """Throttle the command once every time_ms"""
     if throttle_busy.get(single_input):
