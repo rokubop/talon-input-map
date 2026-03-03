@@ -226,7 +226,7 @@ Maps `True` to `"hiss"`, `False` to `"hiss_stop"`.
 "pop":                  ("click",   lambda: actions.mouse_click(0)),
 "pedal_left + pop":     ("R click", lambda: actions.mouse_click(1)),   # pop while pedal held
 ```
-The left side of `+` is the **modifier** — must be stateful (has a `_stop` pair or if/else edge-triggered conditions). The right side is the **activator** — the discrete event. When the modifier is active, the modifier action fires instead of the normal action. When not active, the normal action fires.
+The left side of `+` is the **modifier** - must be stateful (has a `_stop` pair or if/else edge-triggered conditions). The right side is the **activator** - the discrete event. When the modifier is active, the modifier action fires instead of the normal action. When not active, the normal action fires.
 
 Works with edge-triggered modifiers too:
 ```py

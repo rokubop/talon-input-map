@@ -920,7 +920,7 @@ def test_input_map_edge_triggered_basic():
     assert executed == ["left"], f"Failed: got {executed}"
     print("  ✓ First entry into left region fires")
 
-    # Same region — should suppress
+    # Same region - should suppress
     input_map.execute("gaze", x=200.0)
     assert executed == ["left"], f"Failed: should suppress, got {executed}"
     print("  ✓ Same region suppressed")
@@ -930,7 +930,7 @@ def test_input_map_edge_triggered_basic():
     assert executed == ["left", "right"], f"Failed: got {executed}"
     print("  ✓ Transition to right fires")
 
-    # Same right region — suppress
+    # Same right region - suppress
     input_map.execute("gaze", x=700.0)
     assert executed == ["left", "right"], f"Failed: should suppress, got {executed}"
     print("  ✓ Same right region suppressed")
@@ -954,12 +954,12 @@ def test_input_map_edge_triggered_else_fires():
     assert executed == ["left"], f"Failed: got {executed}"
     print("  ✓ Enter left region fires")
 
-    # Leave left (no condition matches) — else fires
+    # Leave left (no condition matches) - else fires
     input_map.execute("gaze", x=600.0)
     assert executed == ["left", "neutral"], f"Failed: got {executed}"
     print("  ✓ Else fires on leaving region")
 
-    # Stay in else — suppress
+    # Stay in else - suppress
     input_map.execute("gaze", x=700.0)
     assert executed == ["left", "neutral"], f"Failed: should suppress, got {executed}"
     print("  ✓ Else suppressed on repeat")
@@ -1013,7 +1013,7 @@ def test_input_map_edge_triggered_mode_reset():
     input_map.execute("gaze", x=100.0)
     assert executed == ["left"], f"Failed: got {executed}"
 
-    # Switch mode — should reset active region
+    # Switch mode - should reset active region
     input_map.setup_mode("other")
     executed.clear()
 
@@ -1140,7 +1140,7 @@ def test_input_map_spread_override_different_modifier():
     input_map.setup(combat_input_map)
 
     # Both keys exist in the dict ("hiss:th_90" from spread, "hiss:db_90" from override)
-    # Both resolve to base "hiss" — the last one processed should win
+    # Both resolve to base "hiss" - the last one processed should win
     input_map.execute("hiss")
 
     # The debounced one (last in dict) should win, but it's debounced so no immediate execution
@@ -1183,7 +1183,7 @@ def test_input_map_spread_override_modes():
     # Wait for throttle to expire before switching modes
     actions.sleep("100ms")
 
-    # Switch to combat mode — override should be active
+    # Switch to combat mode - override should be active
     input_map.setup_mode("combat")
     executed.clear()
     input_map.execute("hiss")
@@ -1193,7 +1193,7 @@ def test_input_map_spread_override_modes():
     # Wait for throttle to expire before switching back
     actions.sleep("100ms")
 
-    # Switch back to default — should use default again
+    # Switch back to default - should use default again
     input_map.setup_mode("default")
     executed.clear()
     input_map.execute("hiss")
@@ -1845,7 +1845,7 @@ def test_modifier_mode_switch_resets():
     # Hold pedal in default mode
     input_map.execute("pedal_left")
 
-    # Switch mode — should reset held state
+    # Switch mode - should reset held state
     input_map.setup_mode("other")
     executed.clear()
 
@@ -1972,11 +1972,11 @@ def test_debounce_start_stop_brief_noise():
     input_map.execute("whistle_stop")
     assert executed == [], f"Failed: should not execute yet, got {executed}"
 
-    # Start debounce fires at 100ms — but stop is pending, so cancel both
+    # Start debounce fires at 100ms - but stop is pending, so cancel both
     actions.sleep("200ms")
     assert executed == [], f"Failed: start should not fire (noise too brief), got {executed}"
 
-    # Stop debounce would fire at 200ms — but was already cancelled
+    # Stop debounce would fire at 200ms - but was already cancelled
     actions.sleep("200ms")
     assert executed == [], f"Failed: stop should not fire either, got {executed}"
     print("  ✓ Brief noise: neither start nor stop fires")
@@ -2003,7 +2003,7 @@ def test_debounce_start_stop_sustained_noise():
     input_map.execute("whistle")        # t=30  cancels stop db, swallowed (line 440-444)
     assert executed == [], f"Failed: should not execute yet, got {executed}"
 
-    # Start debounce fires at t=100 — no pending stop, so it fires
+    # Start debounce fires at t=100 - no pending stop, so it fires
     actions.sleep("200ms")
     assert executed == ["start"], f"Failed: start should fire after sustained, got {executed}"
     print("  ✓ Sustained noise with chatter: start fires")
@@ -2051,11 +2051,11 @@ def test_debounce_stop_fires_cancels_pending_start():
     input_map.execute("whistle")        # start db begins (200ms)
     input_map.execute("whistle_stop")   # stop db begins (100ms)
 
-    # Stop debounce fires first at 100ms — start still pending, cancel both
+    # Stop debounce fires first at 100ms - start still pending, cancel both
     actions.sleep("200ms")
     assert executed == [], f"Failed: stop should cancel pending start, got {executed}"
 
-    # Start debounce would fire at 200ms — but was already cancelled
+    # Start debounce would fire at 200ms - but was already cancelled
     actions.sleep("200ms")
     assert executed == [], f"Failed: start should have been cancelled, got {executed}"
     print("  ✓ Stop fires first: cancels pending start, neither fires")
@@ -2074,7 +2074,7 @@ def test_debounce_start_only_no_counterpart():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # Start with debounce, stop without — should work as before
+    # Start with debounce, stop without - should work as before
     input_map.execute("whistle")
     actions.sleep("200ms")
     assert executed == ["start"], f"Failed: start should fire, got {executed}"
@@ -2100,7 +2100,7 @@ def test_edge_debounce_delays_transition():
     input_map.setup(test_config)
     input_map.edge_debounce_ms = 50
 
-    # Enter left region — should be delayed
+    # Enter left region - should be delayed
     input_map.execute("gaze", x=100.0)
     assert executed == [], f"Failed: should be delayed, got {executed}"
     print("  ✓ Transition delayed")
@@ -2221,7 +2221,7 @@ def test_edge_debounce_mode_switch_cancels():
     input_map.execute("gaze", x=100.0)
     assert executed == [], f"Failed: should be delayed, got {executed}"
 
-    # Switch mode — should cancel pending debounce jobs
+    # Switch mode - should cancel pending debounce jobs
     input_map.setup_mode("other")
 
     actions.sleep("60ms")
