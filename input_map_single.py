@@ -44,9 +44,8 @@ def _register_single(name: str, user_map: dict):
     modes = list(normalized.keys())
     first_mode = modes[0]
 
-    def event_trigger(ctx):
-        ctx["single"] = name
-        input_map_event_trigger(ctx)
+    def event_trigger(event):
+        input_map_event_trigger(event)
 
     instance = InputMap(event_trigger=event_trigger)
     instance.input_map_user_ref = normalized

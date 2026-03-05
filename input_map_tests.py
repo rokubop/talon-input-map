@@ -523,8 +523,8 @@ def test_channel_events():
         channel_unregister("test_events")
 
     events = []
-    def on_input(event: dict):
-        events.append((event["input"], event["label"]))
+    def on_input(event):
+        events.append((event.input, event.label))
 
     test_config = {
         "pop": ("Click", lambda: None),
@@ -2350,6 +2350,144 @@ def test_dur_context_param_injection():
 
     print()
 
+def test_input_map_after_basic():
+    print("Testing InputMap after modifier basic...")
+
+    executed = []
+    test_config = {
+        "pop": ("pop action", lambda: executed.append("pop")),
+        "pop:after_100": ("after action", lambda: executed.append("after")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["pop"], f"Failed: got {executed}"
+    print("  ✓ Immediate action fires")
+
+    actions.sleep("150ms")
+    assert executed == ["pop", "after"], f"Failed: after didn't fire, got {executed}"
+    print("  ✓ After action fires after delay")
+
+    print()
+
+def test_input_map_after_cancelled_by_combo():
+    print("Testing InputMap after cancelled by combo...")
+
+    executed = []
+    test_config = {
+        "pop:now": ("pop now", lambda: executed.append("pop")),
+        "pop:after_100": ("after action", lambda: executed.append("after")),
+        "pop pop": ("double pop", lambda: executed.append("double")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["pop"], f"Failed: got {executed}"
+
+    # Second pop within combo window cancels the after
+    actions.sleep("50ms")
+    input_map.execute("pop")
+    assert "double" in executed, f"Failed: double pop didn't fire, got {executed}"
+
+    # Wait past after delay — should NOT fire
+    actions.sleep("150ms")
+    assert "after" not in executed, f"Failed: after fired despite combo, got {executed}"
+    print("  ✓ After cancelled when combo fires")
+
+    print()
+
+def test_input_map_after_with_now():
+    print("Testing InputMap after with :now modifier full scenario...")
+
+    executed = []
+    test_config = {
+        "pop:now": ("jump start", lambda: executed.append("jump_start")),
+        "pop:after_100": ("short hop", lambda: executed.append("short_hop")),
+        "pop pop": ("full jump", lambda: executed.append("full_jump")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    # Single pop → short hop
+    input_map.execute("pop")
+    assert executed == ["jump_start"], f"Failed: got {executed}"
+
+    actions.sleep("150ms")
+    assert executed == ["jump_start", "short_hop"], f"Failed: got {executed}"
+    print("  ✓ Single pop: immediate + after fires (short hop)")
+
+    # Double pop → full jump, no short hop
+    executed.clear()
+    actions.sleep("350ms")  # wait for combo window to clear
+    input_map.execute("pop")
+    assert executed == ["jump_start"], f"Failed: got {executed}"
+
+    actions.sleep("50ms")
+    input_map.execute("pop")
+    assert "full_jump" in executed, f"Failed: got {executed}"
+
+    actions.sleep("150ms")
+    assert "short_hop" not in executed, f"Failed: short_hop fired despite combo, got {executed}"
+    print("  ✓ Double pop: after cancelled, full jump fires")
+
+    print()
+
+def test_input_map_after_cancels_combo_timeout():
+    print("Testing InputMap after cancels combo timeout...")
+
+    executed = []
+    test_config = {
+        "pop:now": ("pop now", lambda: executed.append("pop_now")),
+        "pop:after_100": ("after", lambda: executed.append("after")),
+        "pop pop": ("double", lambda: executed.append("double")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["pop_now"], f"Failed: got {executed}"
+
+    # Wait for after to fire (100ms) but before combo window (300ms)
+    actions.sleep("150ms")
+    assert "after" in executed, f"Failed: after didn't fire, got {executed}"
+
+    # The combo timeout should have been cancelled by the after firing
+    assert input_map.combo_job is None, f"Failed: combo_job not cancelled"
+    assert input_map.combo_chain == "", f"Failed: combo_chain not cleared"
+    print("  ✓ After firing cancels pending combo timeout")
+
+    print()
+
+def test_input_map_after_reschedule():
+    print("Testing InputMap after reschedule on rapid re-trigger...")
+
+    executed = []
+    test_config = {
+        "pop": ("pop", lambda: executed.append("pop")),
+        "pop:after_100": ("after", lambda: executed.append("after")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    actions.sleep("50ms")
+    input_map.execute("pop")  # re-trigger reschedules the after
+
+    # At 150ms from second pop, the rescheduled after should fire
+    # But only one after total (the first was cancelled by reschedule)
+    actions.sleep("150ms")
+    assert executed.count("after") == 1, f"Failed: expected 1 after, got {executed}"
+    print("  ✓ Rapid re-trigger reschedules after (doesn't queue)")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2482,6 +2620,13 @@ def run_tests():
     test_dur_basic_stop()
     test_dur_none_for_non_pair()
     test_dur_context_param_injection()
+
+    # After modifier tests
+    test_input_map_after_basic()
+    test_input_map_after_cancelled_by_combo()
+    test_input_map_after_with_now()
+    test_input_map_after_cancels_combo_timeout()
+    test_input_map_after_reschedule()
 
     print()
     print("=" * 50)

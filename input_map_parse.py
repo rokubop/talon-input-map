@@ -306,6 +306,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     variable_commands = []
     conditional_commands = []
     modifier_input_keys = []
+    after_commands = {}
 
     for input, action in commands.items():
         if not input or not isinstance(action, tuple) or len(action) < 2:
@@ -325,6 +326,18 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         except ValueError as e:
             print(e)
             continue
+
+        if ":after_" in input:
+            match = re.search(r':after_(\d+)', input)
+            if match:
+                after_ms = int(match.group(1))
+                base_combo = get_base_input(input.split(':')[0])[0]
+                if context_ref is not None:
+                    action = wrap_with_context(action, context_ref)
+                after_commands[base_combo] = (after_ms, action)
+                for inp in base_combo.split():
+                    base_input_set.add(inp)
+                continue
 
         if has_modifier(input):
             modifier_input_keys.append((input, action))
@@ -483,4 +496,6 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         "modifier_commands": modifier_commands,
         "has_modifiers": has_mods,
         "has_dur": has_dur,
+        "after_commands": after_commands,
+        "has_after": bool(after_commands),
     }

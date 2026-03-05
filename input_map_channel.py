@@ -6,7 +6,7 @@ can be managed independently of Talon contexts. Multiple channels can be
 active simultaneously, each processing inputs independently.
 """
 from talon import actions
-from .input_map import InputMap
+from .input_map import InputMap, InputMapEvent
 
 # Registry of channel name -> InputMap instance
 _channels: dict[str, InputMap] = {}
@@ -79,6 +79,10 @@ def channel_mode_set(channel: str, mode: str):
     instance = _channels[channel]
     if mode in instance.input_map_user_ref:
         instance.setup_mode(mode)
+        channel_event_trigger(channel, InputMapEvent(
+            type="mode_change",
+            mode=mode,
+        ))
     else:
         raise ValueError(f"Mode '{mode}' not found in channel '{channel}'")
 
@@ -169,7 +173,7 @@ def channel_event_unregister(channel: str, on_input: callable):
                 break
 
 
-def channel_event_trigger(channel: str, event: dict):
+def channel_event_trigger(channel: str, event: InputMapEvent):
     """Trigger event callbacks for a specific channel."""
     if channel not in _channel_callbacks:
         return

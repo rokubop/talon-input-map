@@ -1,4 +1,4 @@
-from talon import Module, actions
+from talon import Module, actions, registry
 from .input_map import (
     input_map_mode_cycle,
     input_map_mode_get,
@@ -242,8 +242,8 @@ class Actions:
         """
         Register input event triggered from input_map
         ```py
-        def on_input(event: dict):
-            print(event["input"], event["label"])
+        def on_input(event):
+            print(event.input, event.label)
         actions.user.input_map_event_register(on_input)
         ```
         """
@@ -416,8 +416,8 @@ class Actions:
 
         Example:
         ```py
-        def on_input(event: dict):
-            print(f"Channel input: {event['input']} -> {event['label']}")
+        def on_input(event):
+            print(f"Channel input: {event.input} -> {event.label}")
         actions.user.input_map_channel_event_register("combat", on_input)
         ```
         """
@@ -519,6 +519,28 @@ class Actions:
         Returns {input: label} with modifiers stripped and empty entries filtered.
         """
         return single_get_legend(name, map, mode)
+
+    def input_map_get_talon_commands(talon_path: str) -> dict[str, str]:
+        """
+        Get voice commands from a .talon file via the registry.
+
+        Returns {voice_command: action_code} preserving file order.
+
+        ```py
+        cmds = actions.user.input_map_get_talon_commands("talon-game-sheepy/sheepy_game.talon")
+        # {"jump": 'user.gamekit_button_tap("a")', "stop": "user.gamekit_stop_all()", ...}
+        ```
+        """
+        if not talon_path.endswith(".talon"):
+            raise ValueError(f"Expected a .talon file path, got: {talon_path}")
+        suffix = talon_path.replace("/", ".")
+        for ctx_name, ctx in registry.contexts.items():
+            if ctx_name.endswith(suffix):
+                return {
+                    cmd.rule.rule: cmd.script.code
+                    for cmd in ctx.commands.values()
+                }
+        return {}
 
     def input_map_tests():
         """

@@ -273,8 +273,8 @@ Modifiers are stripped and empty labels are filtered out.
 
 Listen to every input that fires through input map:
 ```py
-def on_input(event: dict):
-    print(event["input"], event["label"], event["mode"])
+def on_input(event):
+    print(event.input, event.label, event.mode)
 
 actions.user.input_map_event_register(on_input)
 actions.user.input_map_event_unregister(on_input)

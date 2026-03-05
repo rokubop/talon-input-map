@@ -2,7 +2,17 @@
 Core InputMap class and runtime execution logic (hot path).
 """
 import time
+from dataclasses import dataclass
 from talon import Module, actions, cron, settings
+
+
+@dataclass(slots=True)
+class InputMapEvent:
+    """Event fired when an input map action is triggered or mode changes."""
+    type: str        # "input" or "mode_change"
+    mode: str        # current mode name
+    input: str = ""  # input key (e.g. "pop", "hiss")
+    label: str = ""  # action label (e.g. "jump", "stop")
 from .input_map_parse import (
     categorize_commands,
     match_variable_pattern,
@@ -42,6 +52,9 @@ class InputMap():
         self._held_inputs = {}
         self.has_dur = False
         self._start_timestamps = {}
+        self._after_commands = {}
+        self._after_jobs = {}
+        self.has_after = False
         self.combo_chain = ""
         self.combo_job = None
         self.base_inputs = None
@@ -57,14 +70,46 @@ class InputMap():
 
     def _trigger_event(self, input: str, label: str):
         """Trigger event using custom callback if provided, otherwise use global."""
-        ctx = self._context
-        ctx["input"] = input
-        ctx["label"] = label
-        ctx["mode"] = self.current_mode
+        event = InputMapEvent(
+            type="input",
+            mode=self.current_mode,
+            input=input,
+            label=label,
+        )
         if self._event_trigger:
-            self._event_trigger(ctx)
+            self._event_trigger(event)
         else:
-            input_map_event_trigger(ctx)
+            input_map_event_trigger(event)
+
+    def _schedule_after(self, key, delay_ms, action_tuple):
+        """Schedule action to fire after delay_ms. Cancels previous after for same key."""
+        if self._after_jobs.get(key):
+            cron.cancel(self._after_jobs[key])
+
+        def _fire():
+            self._after_jobs[key] = None
+            # Cancel pending combo — after resolved the input
+            if self.combo_job:
+                cron.cancel(self.combo_job)
+                self.combo_job = None
+                self.combo_chain = ""
+                self.pending_combo = None
+            action_tuple[1]()
+            self._trigger_event(key, action_tuple[0])
+
+        self._after_jobs[key] = cron.after(f"{delay_ms}ms", _fire)
+
+    def _cancel_after(self, key):
+        job = self._after_jobs.get(key)
+        if job:
+            cron.cancel(job)
+            self._after_jobs[key] = None
+
+    def _cancel_all_after(self):
+        for key, job in self._after_jobs.items():
+            if job:
+                cron.cancel(job)
+        self._after_jobs = {}
 
     def setup_mode(self, mode):
         if mode:
@@ -77,6 +122,8 @@ class InputMap():
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
+        if self.has_after:
+            self._cancel_all_after()
         if self.current_mode is not None:
             self.previous_mode = self.current_mode
         self.current_mode = mode
@@ -103,6 +150,8 @@ class InputMap():
             self.modifier_commands = cached["modifier_commands"]
             self.has_modifiers = cached["has_modifiers"]
             self.has_dur = cached["has_dur"]
+            self._after_commands = cached["after_commands"]
+            self.has_after = cached["has_after"]
             self._held_inputs = {}
             self._start_timestamps = {}
             self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
@@ -134,6 +183,8 @@ class InputMap():
         self.modifier_commands = categorized["modifier_commands"]
         self.has_modifiers = categorized["has_modifiers"]
         self.has_dur = categorized["has_dur"]
+        self._after_commands = categorized["after_commands"]
+        self.has_after = categorized["has_after"]
         self._held_inputs = {}
         self._start_timestamps = {}
         self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
@@ -492,9 +543,12 @@ class InputMap():
                 self._debounce_busy[f"{input_name}_up"] = False
                 return
 
+        _combo_extended = bool(self.combo_job)
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
+            if self.has_after and self.combo_chain:
+                self._cancel_after(self.combo_chain)
 
         self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
 
@@ -539,6 +593,12 @@ class InputMap():
             self._execute_single_immediate_command(input_name)
         else:
             self._execute_potential_combo()
+
+        # Schedule after command if one exists for this input.
+        # Skip if a multi-input combo consumed this input (combo was extended).
+        if self.has_after and input_name in self._after_commands and not _combo_extended:
+            delay_ms, action_tuple = self._after_commands[input_name]
+            self._schedule_after(input_name, delay_ms, action_tuple)
 
         # Record start timestamp for dur computation (gated)
         if self.has_dur and input_name in self.base_pairs:
@@ -617,7 +677,7 @@ def input_map_event_unregister(on_input: callable):
                 event_subscribers.remove(subscriber)
                 break
 
-def input_map_event_trigger(event: dict):
+def input_map_event_trigger(event: InputMapEvent):
     for on_input_subscriber in event_subscribers:
         on_input_subscriber(event)
 
