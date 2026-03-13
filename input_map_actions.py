@@ -35,6 +35,7 @@ from .input_map_single import (
 from .input_map_tests import run_tests
 
 mod = Module()
+_talon_path_cache = {}
 
 @mod.action_class
 class Actions:
@@ -541,6 +542,52 @@ class Actions:
                     for cmd in ctx.commands.values()
                 }
         return {}
+
+    def input_map_get_talon_commands_grouped(talon_path: str) -> dict[str, list[str]]:
+        """
+        Get voice commands from a .talon file grouped by comment sections.
+
+        Returns {section_title: [voice_commands]} using `# Section` comments
+        as group headers. Commands before any comment go under "commands".
+
+        ```py
+        cmds = actions.user.input_map_get_talon_commands_grouped("talon-game-hi-fi-rush/hi_fi_rush_game")
+        # {"WASD": ["go", "back", ...], "Combat": ["hit", "strong", ...]}
+        ```
+        """
+        import os, glob as _glob
+        if not talon_path.endswith(".talon"):
+            talon_path += ".talon"
+        file_path = _talon_path_cache.get(talon_path)
+        if not file_path:
+            user_dir = actions.path.talon_user()
+            pattern = os.path.join(user_dir, "**", talon_path.replace("/", os.sep))
+            matches = _glob.glob(pattern, recursive=True)
+            if not matches:
+                raise ValueError(f"Could not find talon file: {talon_path}")
+            file_path = matches[0]
+            _talon_path_cache[talon_path] = file_path
+        groups = {}
+        current_section = "commands"
+        past_header = False
+        with open(file_path, "r") as f:
+            for line in f:
+                if not past_header:
+                    if line.strip() == "-":
+                        past_header = True
+                    continue
+                if line[0:1] in (" ", "\t"):
+                    continue
+                line = line.strip()
+                if line.startswith("# "):
+                    current_section = line[2:].strip()
+                    continue
+                if line.startswith("settings()") or not line or line.startswith("#"):
+                    continue
+                voice = line.split(":")[0].strip()
+                if voice:
+                    groups.setdefault(current_section, []).append(voice)
+        return groups
 
     def input_map_tests():
         """

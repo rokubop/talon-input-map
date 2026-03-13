@@ -128,12 +128,18 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
     instance = _channels[channel]
     input_map = instance.input_map_user_ref
 
-    if "default" in input_map:
+    first_key = next(iter(input_map), None)
+    is_modal = first_key and isinstance(input_map[first_key], dict)
+    if "default" in input_map or is_modal:
         if mode is None:
             mode = instance.current_mode
-        input_map = input_map.get(mode, input_map["default"])
+        fallback = input_map.get("default", input_map.get(first_key, {}))
+        input_map = input_map.get(mode, fallback)
 
-    legend = {}
+    import re
+
+    # Collect all entries with labels
+    entries = []
     for input_key, action_tuple in input_map.items():
         if isinstance(action_tuple, tuple):
             if len(action_tuple) == 0:
@@ -141,11 +147,28 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
             label = action_tuple[0]
         else:
             label = action_tuple
-
         if label == "":
             continue
-        input_key = input_key.split(":")[0]
-        legend[input_key] = label
+        base = input_key.split(":")[0]
+        entries.append((input_key, base, label))
+
+    # Count how many entries share each base key
+    base_counts = {}
+    for _, base, _ in entries:
+        base_counts[base] = base_counts.get(base, 0) + 1
+
+    legend = {}
+    for input_key, base, label in entries:
+        if base_counts[base] > 1:
+            # Format modifier readably for display
+            modifier = input_key[len(base):]
+            modifier = re.sub(r":dur([<>=]+)(\d+)", r" \1 \2ms", modifier)
+            modifier = re.sub(r":(th|db|now)_?\d*", "", modifier)
+            display = f"{base}{modifier}".replace("_", " ")
+        else:
+            display = base.replace("_", " ")
+            # Strip all modifiers for single entries
+        legend[display] = label
 
     return legend
 

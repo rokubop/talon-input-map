@@ -203,7 +203,11 @@ class InputMap():
         if "default" in input_map:
             self.setup_mode("default")
         else:
-            self.setup_mode(None)
+            first_key = next(iter(input_map), None)
+            if first_key and isinstance(input_map[first_key], dict):
+                self.setup_mode(first_key)
+            else:
+                self.setup_mode(None)
 
     def _delayed_combo_execute(self):
         if self.combo_job:
