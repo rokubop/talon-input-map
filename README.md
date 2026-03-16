@@ -368,3 +368,6 @@ actions.user.input_map_tests()
 
 ## Dependencies
 none
+
+## More Talon packages
+Check out my other Talon packages for UI, mouse control, parrot, and more at [talon-hub-roku](https://github.com/rokubop/talon-hub-roku).
