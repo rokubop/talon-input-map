@@ -551,13 +551,13 @@ class Actions:
         as group headers. Commands before any comment go under "commands".
 
         ```py
-        cmds = actions.user.input_map_get_talon_commands_grouped("talon-game-hi-fi-rush/hi_fi_rush_game")
+        cmds = actions.user.input_map_get_talon_commands_grouped("talon-game-hi-fi-rush/hi_fi_rush_game.talon")
         # {"WASD": ["go", "back", ...], "Combat": ["hit", "strong", ...]}
         ```
         """
         import os, glob as _glob
         if not talon_path.endswith(".talon"):
-            talon_path += ".talon"
+            raise ValueError(f"talon_path must end with '.talon', got: '{talon_path}'")
         file_path = _talon_path_cache.get(talon_path)
         if not file_path:
             user_dir = actions.path.talon_user()
