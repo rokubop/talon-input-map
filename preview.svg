@@ -33,28 +33,28 @@
   <circle cx="196" cy="132" r="3.5" fill="#3b82f6"/>
 
   <!-- tut → bus (parallel horizontal entry) -->
-  <line x1="94" y1="222" x2="196" y2="222" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
-  <circle cx="196" cy="222" r="3.5" fill="#60a5fa" opacity="0.75"/>
+  <line x1="94" y1="222" x2="196" y2="222" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/>
+  <circle cx="196" cy="222" r="3.5" fill="#3b82f6" opacity="0.75"/>
 
   <!-- Bus → row 1 (pop primary) -->
   <path d="M196 132 L196 102 L304 102" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round"/>
 
   <!-- Bus → row 2 (tut primary) -->
-  <path d="M196 222 L196 162 L304 162" stroke="#60a5fa" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.75"/>
+  <path d="M196 222 L196 162 L304 162" stroke="#3b82f6" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.75"/>
 
   <!-- Bus → row 3 (tut tut, straight) -->
-  <line x1="196" y1="222" x2="304" y2="222" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" opacity="0.55"/>
+  <line x1="196" y1="222" x2="304" y2="222" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round" opacity="0.55"/>
 
   <!-- Bus → row 4 (tut pop) -->
-  <path d="M196 222 L196 282 L304 282" stroke="#60a5fa" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.4"/>
+  <path d="M196 222 L196 282 L304 282" stroke="#3b82f6" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.4"/>
 
   <!-- Pop merge indicator (dashed, from pop junction down) -->
   <path d="M196 132 L196 282" stroke="#3b82f6" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.3" stroke-dasharray="5 4"/>
-  <circle cx="196" cy="282" r="3" fill="#60a5fa" opacity="0.4"/>
+  <circle cx="196" cy="282" r="3" fill="#3b82f6" opacity="0.4"/>
 
   <!-- Row branch dots -->
   <circle cx="196" cy="102" r="2" fill="#3b82f6" opacity="0.6"/>
-  <circle cx="196" cy="162" r="2" fill="#60a5fa" opacity="0.5"/>
+  <circle cx="196" cy="162" r="2" fill="#3b82f6" opacity="0.5"/>
 
   <!-- Output rows -->
   <rect x="304" y="83" width="250" height="38" rx="6" fill="#111827" stroke="#334155" stroke-width="0.8"/>
@@ -74,18 +74,18 @@
   <text x="540" y="287" text-anchor="end" font-family="monospace" font-size="15" fill="#e5e7eb">action 4</text>
 
   <!-- Output lines -->
-  <line x1="554" y1="102" x2="612" y2="102" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-  <line x1="554" y1="162" x2="612" y2="162" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-  <line x1="554" y1="222" x2="612" y2="222" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-  <line x1="554" y1="282" x2="612" y2="282" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="554" y1="102" x2="612" y2="102" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="554" y1="162" x2="612" y2="162" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="554" y1="222" x2="612" y2="222" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="554" y1="282" x2="612" y2="282" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
 
   <!-- Output dots -->
-  <circle cx="624" cy="102" r="9" stroke="#60a5fa" stroke-width="1.5" fill="none" opacity="0.5"/>
-  <circle cx="624" cy="102" r="3.5" fill="#60a5fa" opacity="0.6"/>
-  <circle cx="624" cy="162" r="9" stroke="#60a5fa" stroke-width="1.5" fill="none" opacity="0.5"/>
-  <circle cx="624" cy="162" r="3.5" fill="#60a5fa" opacity="0.6"/>
-  <circle cx="624" cy="222" r="9" stroke="#60a5fa" stroke-width="1.5" fill="none" opacity="0.5"/>
-  <circle cx="624" cy="222" r="3.5" fill="#60a5fa" opacity="0.6"/>
-  <circle cx="624" cy="282" r="9" stroke="#60a5fa" stroke-width="1.5" fill="none" opacity="0.5"/>
-  <circle cx="624" cy="282" r="3.5" fill="#60a5fa" opacity="0.6"/>
+  <circle cx="624" cy="102" r="9" stroke="#3b82f6" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <circle cx="624" cy="102" r="3.5" fill="#3b82f6" opacity="0.6"/>
+  <circle cx="624" cy="162" r="9" stroke="#3b82f6" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <circle cx="624" cy="162" r="3.5" fill="#3b82f6" opacity="0.6"/>
+  <circle cx="624" cy="222" r="9" stroke="#3b82f6" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <circle cx="624" cy="222" r="3.5" fill="#3b82f6" opacity="0.6"/>
+  <circle cx="624" cy="282" r="9" stroke="#3b82f6" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <circle cx="624" cy="282" r="3.5" fill="#3b82f6" opacity="0.6"/>
 </svg>
