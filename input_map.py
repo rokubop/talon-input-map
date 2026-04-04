@@ -693,6 +693,10 @@ def input_map_mode_set(mode: str):
     config = actions.user.input_map()
     if mode in config:
         input_map_saved.setup_mode(mode)
+        input_map_event_trigger(InputMapEvent(
+            type="mode_change",
+            mode=mode,
+        ))
     else:
         raise ValueError(f"Mode '{mode}' not found in input_map")
 
@@ -712,6 +716,10 @@ def input_map_mode_cycle() -> str:
 def input_map_mode_revert() -> str:
     if input_map_saved.previous_mode is not None:
         input_map_saved.setup_mode(input_map_saved.previous_mode)
+        input_map_event_trigger(InputMapEvent(
+            type="mode_change",
+            mode=input_map_saved.current_mode,
+        ))
     return input_map_saved.current_mode
 
 def input_map_get(mode: str = None) -> dict:
