@@ -2,7 +2,7 @@
   "name": "talon-input-map",
   "title": "Input Map",
   "description": "This is an alternate way to define your input commands in a way that supports combos, throttling, debounce, switching out configs easily without needing to create new modes. Works with parrot noises, foot pedals, face tracking, or any other input source.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "status": "experimental",
   "namespace": "user.input_map",
   "github": "https://github.com/rokubop/talon-input-map/",

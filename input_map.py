@@ -200,6 +200,7 @@ class InputMap():
     def setup(self, input_map):
         self.input_map_user_ref = input_map
         self._mode_cache = {}
+        self.current_mode = None
         if "default" in input_map:
             self.setup_mode("default")
         else:
