@@ -101,6 +101,10 @@ def channel_mode_revert(channel: str) -> str:
     instance = _channels[channel]
     if instance.previous_mode is not None:
         instance.setup_mode(instance.previous_mode)
+        channel_event_trigger(channel, InputMapEvent(
+            type="mode_change",
+            mode=instance.current_mode,
+        ))
     return instance.current_mode
 
 
@@ -116,6 +120,10 @@ def channel_mode_cycle(channel: str) -> str:
         next_index = (current_index + 1) % len(modes)
         next_mode = modes[next_index]
         instance.setup_mode(next_mode)
+        channel_event_trigger(channel, InputMapEvent(
+            type="mode_change",
+            mode=next_mode,
+        ))
         return next_mode
     else:
         raise ValueError(f"Mode '{current_mode}' not found in channel '{channel}'")
