@@ -13,6 +13,7 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - debounce
 - variable inputs
 - greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, or `value`
+- bindings scoped to the moment a mode is entered
 - cross-input modifiers
 
 > Formerly known as `parrot_config`.
@@ -42,10 +43,11 @@ git clone https://github.com/rokubop/talon-input-map/
 "pop:power>10":       ("loud",    lambda: actions.user.strong_click())   # condition
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
+"hiss:init":          ("redirect",lambda: actions.user.other_mode())      # first 300ms of a mode
 "pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
 ```
 
-[Modes](#modes) | [Single](#single) | [Options](#options) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
+[Modes](#modes) | [Single](#single) | [Options](#options) | [Init window](#init-window) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
 
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
@@ -169,6 +171,25 @@ parrot(hiss:stop): user.input_map_handle("hiss_stop")
 "hiss_stop:db_100": ("stop",   lambda: None),                       # wait 100ms before stopping
 ```
 Use `":th"` or `":db"` for defaults.
+
+**Init window**
+```py
+"hiss:init": ("canvas scale",  lambda: actions.user.canvas_scale()),
+"hiss":      ("canvas resume", lambda: actions.user.canvas_resume()),
+```
+`hiss` takes the first binding for 300ms after the mode is entered and the second one
+after that. Use `":init_150"` to set the window on that key, or the
+`user.input_map_init_window` setting to change the default.
+
+The clock restarts on every mode change, including re-entering a mode you just left.
+Setting the mode it is already in does not restart it.
+
+This is for a redirect window - one input switches modes, and for a moment afterwards
+the next input can send you somewhere else instead of doing its normal job.
+
+Cannot be combined with `":else"`. Edge-triggered regions only re-evaluate on input,
+and this one changes with time, so the else branch would never fire again once the
+window shuts. Pair `":init"` with a plain unconditioned key, as above.
 
 **Variable pattern**
 ```talon

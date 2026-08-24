@@ -2488,6 +2488,165 @@ def test_input_map_after_reschedule():
 
     print()
 
+def test_init_parse():
+    print("Testing ':init' parsing...")
+
+    assert parse_condition("init") == ("mode_age", "<", 300.0), parse_condition("init")
+    assert parse_condition("init_150") == ("mode_age", "<", 150.0), parse_condition("init_150")
+    assert parse_condition("initial") is None, "'initial' should not parse as init"
+    assert parse_condition("init_") is None, "'init_' should not parse as init"
+    print("  ✓ init / init_N desugar to mode_age")
+
+    assert has_conditions("pop:init") is True
+    assert has_conditions("pop:init_150") is True
+    print("  ✓ init counts as a condition")
+
+    cleaned, conditions = extract_conditions("pop:init:db_100")
+    assert cleaned == "pop:db_100", f"Failed: got {cleaned}"
+    assert conditions == [("mode_age", "<", 300.0)], f"Failed: got {conditions}"
+    print("  ✓ init strips from the key and composes with debounce")
+
+    print()
+
+def test_init_basic():
+    print("Testing ':init' window...")
+
+    executed = []
+    test_config = {
+        "pop:init": ("gateway", lambda: executed.append("gateway")),
+        "pop": ("normal", lambda: executed.append("normal")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["gateway"], f"Failed: got {executed}"
+    print("  ✓ Inside the window takes the init binding")
+
+    executed.clear()
+    actions.sleep("350ms")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Past the window falls through to the plain key")
+
+    print()
+
+def test_init_explicit_window():
+    print("Testing ':init_N' explicit window...")
+
+    executed = []
+    test_config = {
+        "pop:init_150": ("gateway", lambda: executed.append("gateway")),
+        "pop": ("normal", lambda: executed.append("normal")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    actions.sleep("50ms")
+    input_map.execute("pop")
+    assert executed == ["gateway"], f"Failed: got {executed}"
+
+    executed.clear()
+    actions.sleep("150ms")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Per-key window is honored")
+
+    print()
+
+def test_init_no_binding_no_clock():
+    print("Testing ':init' gating...")
+
+    input_map = InputMap()
+    input_map.setup({"pop": ("normal", lambda: None)})
+    assert input_map.has_mode_age is False, "has_mode_age should be off without ':init'"
+
+    input_map.setup({"pop:init": ("gateway", lambda: None), "pop": ("normal", lambda: None)})
+    assert input_map.has_mode_age is True, "has_mode_age should be on with ':init'"
+    print("  ✓ mode_age is only computed for maps that use it")
+
+    print()
+
+def test_init_restamps_on_mode_change():
+    print("Testing ':init' restamps on mode change...")
+
+    executed = []
+    test_config = {
+        "a": {
+            "pop:init": ("a gateway", lambda: executed.append("a_gateway")),
+            "pop": ("a normal", lambda: executed.append("a_normal")),
+        },
+        "b": {
+            "pop": ("b normal", lambda: executed.append("b_normal")),
+        },
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["a_gateway"], f"Failed: got {executed}"
+
+    executed.clear()
+    actions.sleep("350ms")
+    input_map.execute("pop")
+    assert executed == ["a_normal"], f"Failed: got {executed}"
+    print("  ✓ Window shuts while the mode stays put")
+
+    # Re-entry serves mode 'a' from _mode_cache, where has_mode_age was missing.
+    executed.clear()
+    input_map.setup_mode("b")
+    input_map.setup_mode("a")
+    input_map.execute("pop")
+    assert executed == ["a_gateway"], f"Failed: got {executed}"
+    print("  ✓ Re-entering the mode reopens the window (cached path)")
+
+    print()
+
+def test_init_same_mode_does_not_restamp():
+    print("Testing ':init' ignores a no-op mode set...")
+
+    executed = []
+    test_config = {
+        "a": {
+            "pop:init": ("gateway", lambda: executed.append("gateway")),
+            "pop": ("normal", lambda: executed.append("normal")),
+        },
+        "b": {"pop": ("b", lambda: executed.append("b"))},
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    input_map.setup_mode("a")
+
+    actions.sleep("350ms")
+    input_map.setup_mode("a")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Setting the mode it is already in does not reopen the window")
+
+    print()
+
+def test_init_rejects_else():
+    print("Testing ':init' rejects an else branch...")
+
+    test_config = {
+        "pop:init": ("gateway", lambda: None),
+        "pop:else": ("normal", lambda: None),
+    }
+
+    input_map = InputMap()
+    try:
+        input_map.setup(test_config)
+        assert False, "Failed: expected ValueError for ':init' with ':else'"
+    except ValueError as e:
+        assert "init" in str(e), f"Failed: unexpected error {e}"
+    print("  ✓ init + else raises at setup")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2627,6 +2786,15 @@ def run_tests():
     test_input_map_after_with_now()
     test_input_map_after_cancels_combo_timeout()
     test_input_map_after_reschedule()
+
+    # Mode init window (':init') tests
+    test_init_parse()
+    test_init_basic()
+    test_init_explicit_window()
+    test_init_no_binding_no_clock()
+    test_init_restamps_on_mode_change()
+    test_init_same_mode_does_not_restamp()
+    test_init_rejects_else()
 
     print()
     print("=" * 50)

@@ -18,6 +18,8 @@ from .input_map_parse import (
     match_variable_pattern,
     execute_variable_action,
     evaluate_conditions,
+    set_default_init_window,
+    MODE_AGE,
 )
 
 mod = Module()
@@ -52,6 +54,8 @@ class InputMap():
         self._held_inputs = {}
         self.has_dur = False
         self._start_timestamps = {}
+        self.has_mode_age = False
+        self._mode_entered_at = time.monotonic()
         self._after_commands = {}
         self._after_jobs = {}
         self.has_after = False
@@ -127,6 +131,7 @@ class InputMap():
         if self.current_mode is not None:
             self.previous_mode = self.current_mode
         self.current_mode = mode
+        self._mode_entered_at = time.monotonic()
         self.combo_chain = ""
         self.pending_combo = None
 
@@ -152,6 +157,7 @@ class InputMap():
             self.has_dur = cached["has_dur"]
             self._after_commands = cached["after_commands"]
             self.has_after = cached["has_after"]
+            self.has_mode_age = cached["has_mode_age"]
             self._held_inputs = {}
             self._start_timestamps = {}
             self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
@@ -164,6 +170,7 @@ class InputMap():
 
         commands = input_map.get("commands", {}) if "commands" in input_map else input_map
 
+        set_default_init_window(settings.get("user.input_map_init_window", 300))
         categorized = categorize_commands(commands, self._throttle_busy, self._debounce_busy, context_ref=self._context)
         self.immediate_commands = categorized["immediate_commands"]
         self.delayed_commands = categorized["delayed_commands"]
@@ -185,6 +192,7 @@ class InputMap():
         self.has_dur = categorized["has_dur"]
         self._after_commands = categorized["after_commands"]
         self.has_after = categorized["has_after"]
+        self.has_mode_age = categorized["has_mode_age"]
         self._held_inputs = {}
         self._start_timestamps = {}
         self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
@@ -516,6 +524,9 @@ class InputMap():
         else:
             # Store input context for actions and condition evaluation
             self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+
+        if self.has_mode_age:
+            self._context[MODE_AGE] = (time.monotonic() - self._mode_entered_at) * 1000
 
         if input_name not in self.base_inputs:
             # Record start timestamp even if input not in base_inputs

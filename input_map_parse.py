@@ -10,6 +10,16 @@ CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value|dur)(>=|<=|==|!=|>|<
 MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
 MODIFIER_SEPARATOR = " + "
 
+INIT_PATTERN = re.compile(r'^init(?:_(\d+))?$')
+MODE_AGE = "mode_age"
+DEFAULT_INIT_WINDOW_MS = 300
+
+
+def set_default_init_window(ms: int):
+    """Baked into the condition at parse time, so call before categorizing."""
+    global DEFAULT_INIT_WINDOW_MS
+    DEFAULT_INIT_WINDOW_MS = int(ms)
+
 
 def has_modifier(key: str) -> bool:
     """Check if an input key uses the cross-input modifier syntax ('a + b')."""
@@ -49,7 +59,12 @@ def validate_input_format(input_key: str):
                 )
 
 def parse_condition(segment: str):
-    """Parse a single segment like 'power>10' into ('power', '>', 10.0), or None if not a condition."""
+    """Parse a single segment like 'power>10' into ('power', '>', 10.0), or None
+    if not a condition. ':init' and ':init_300' desugar to a mode_age condition."""
+    match = INIT_PATTERN.match(segment)
+    if match:
+        window = match.group(1)
+        return (MODE_AGE, '<', float(window) if window else float(DEFAULT_INIT_WINDOW_MS))
     match = CONDITION_PATTERN.match(segment)
     if match:
         return (match.group(1), match.group(2), float(match.group(3)))
@@ -451,6 +466,27 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     has_conds = bool(immediate_conditional or delayed_conditional)
     has_edge = bool(edge_triggered_bases)
 
+    # detect_edge_triggered has already stripped the None ('else') entries.
+    def _uses_mode_age(entries):
+        return any(var == MODE_AGE for conditions, _ in entries for var, _, _ in conditions)
+
+    has_mode_age = any(
+        _uses_mode_age(entries)
+        for entries in list(immediate_conditional.values()) + list(delayed_conditional.values())
+    )
+
+    for base_key in edge_triggered_bases:
+        entries = (immediate_conditional.get(base_key) or []) + (delayed_conditional.get(base_key) or [])
+        if _uses_mode_age(entries):
+            raise ValueError(
+                f"""
+'{base_key}' combines ':init' with ':else'.
+Edge-triggered regions re-evaluate on input, but mode_age changes with time, so
+the else branch would never fire again once the window shuts.
+Pair ':init' with a plain unconditioned key instead.
+"""
+            )
+
     # Check if any condition uses the 'dur' variable
     has_dur = False
     for entries in list(immediate_conditional.values()) + list(delayed_conditional.values()):
@@ -498,4 +534,5 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         "has_dur": has_dur,
         "after_commands": after_commands,
         "has_after": bool(after_commands),
+        "has_mode_age": has_mode_age,
     }
