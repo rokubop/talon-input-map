@@ -43,7 +43,7 @@ git clone https://github.com/rokubop/talon-input-map/
 "pop:power>10":       ("loud",    lambda: actions.user.strong_click())   # condition
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
-"hiss:init":          ("redirect",lambda: actions.user.other_mode())      # first 300ms of a mode
+"hiss:init":          ("redirect",lambda: actions.user.other_mode())     # first 300ms of a mode
 "pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
 ```
 
@@ -65,6 +65,7 @@ git clone https://github.com/rokubop/talon-input-map/
   - [Single actions](#single-actions)
   - [Testing](#testing)
   - [Dependencies](#dependencies)
+  - [More Talon packages](#more-talon-packages)
 
 ## Usage - simple
 
@@ -177,19 +178,14 @@ Use `":th"` or `":db"` for defaults.
 "hiss:init": ("canvas scale",  lambda: actions.user.canvas_scale()),
 "hiss":      ("canvas resume", lambda: actions.user.canvas_resume()),
 ```
-`hiss` takes the first binding for 300ms after the mode is entered and the second one
-after that. Use `":init_150"` to set the window on that key, or the
-`user.input_map_init_window` setting to change the default.
+Use `hiss:init` to declare how hiss should behave if triggered within `300ms` of activating the input map mode.
 
-The clock restarts on every mode change, including re-entering a mode you just left.
-Setting the mode it is already in does not restart it.
+Writing `hiss:init` is the same as writing `hiss:init_300` (user setting).
 
-This is for a redirect window - one input switches modes, and for a moment afterwards
-the next input can send you somewhere else instead of doing its normal job.
+`hiss:init_1000` means within the first `1000ms` of activating the input map mode, `hiss` will behave according to the `init_1000` definition.
 
-Cannot be combined with `":else"`. Edge-triggered regions only re-evaluate on input,
-and this one changes with time, so the else branch would never fire again once the
-window shuts. Pair `":init"` with a plain unconditioned key, as above.
+Cannot be combined with `":else"`.
+Pair `":init"` with a plain unconditioned key, as above.
 
 **Variable pattern**
 ```talon
