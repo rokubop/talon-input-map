@@ -15,6 +15,42 @@ MODE_AGE = "mode_age"
 DEFAULT_INIT_WINDOW_MS = 300
 
 
+LEGEND_DUR_PATTERN = re.compile(r":dur([<>=]+)(\d+)")
+LEGEND_HIDDEN_MODIFIERS = re.compile(r":(th|db|now)_?\d*")
+
+
+def build_legend(commands: dict) -> dict:
+    """{input: label} for display. A base with several bindings keeps a readable
+    modifier so each case gets its own row; a lone binding shows the bare base."""
+    entries = []
+    for input_key, action in commands.items():
+        if isinstance(action, tuple):
+            if len(action) == 0:
+                continue
+            label = action[0]
+        else:
+            label = action
+        if label == "":
+            continue
+        entries.append((input_key, input_key.split(":")[0], label))
+
+    base_counts = {}
+    for _, base, _ in entries:
+        base_counts[base] = base_counts.get(base, 0) + 1
+
+    legend = {}
+    for input_key, base, label in entries:
+        if base_counts[base] > 1:
+            modifier = input_key[len(base):]
+            modifier = LEGEND_DUR_PATTERN.sub(r" \1 \2ms", modifier)
+            modifier = LEGEND_HIDDEN_MODIFIERS.sub("", modifier)
+            display = f"{base}{modifier}".replace("_", " ")
+        else:
+            display = base.replace("_", " ")
+        legend[display] = label
+    return legend
+
+
 def set_default_init_window(ms: int):
     """Baked into the condition at parse time, so call before categorizing."""
     global DEFAULT_INIT_WINDOW_MS

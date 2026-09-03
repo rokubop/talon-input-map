@@ -32,6 +32,7 @@ from .input_map_single import (
     single_mode_revert,
     single_get_legend,
 )
+from .input_map_parse import build_legend
 from .input_map_tests import run_tests
 
 mod = Module()
@@ -211,7 +212,9 @@ class Actions:
         """
         Get the legend for an input map.
 
-        Returns {input: label} with modifiers stripped and empty entries filtered.
+        Returns {input: label}. A base with several bindings keeps a readable
+        modifier, so "left_up:dur<300" and "left_up:dur>=300" get their own rows.
+        Empty labels are filtered out.
 
         - If input_map not provided, uses current active input_map
         - If mode specified, uses that mode
@@ -223,21 +226,7 @@ class Actions:
                 mode = actions.user.input_map_mode_get()
             input_map = input_map.get(mode, input_map["default"])
 
-        legend = {}
-        for input_key, action_tuple in input_map.items():
-            if isinstance(action_tuple, tuple):
-                if len(action_tuple) == 0:
-                    continue
-                label = action_tuple[0]
-            else:
-                label = action_tuple
-
-            if label == "":
-                continue
-            input_key = input_key.split(":")[0]
-            legend[input_key] = label
-
-        return legend
+        return build_legend(input_map)
 
     def input_map_event_register(on_input: callable):
         """

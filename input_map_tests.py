@@ -14,6 +14,7 @@ from .input_map_parse import (
     parse_condition,
     extract_conditions,
     evaluate_conditions,
+    build_legend,
 )
 from .input_map_channel import (
     channel_register,
@@ -1428,11 +1429,11 @@ def test_single_get_legend():
     }
 
     legend = single_get_legend("test_legend_s", pop_map)
-    assert legend == {"test_legend_s": "left click"}, f"Failed: got {legend}"
+    assert legend == {"test legend s": "left click"}, f"Failed: got {legend}"
     print("  ✓ Returns {input: label}")
 
     legend2 = single_get_legend("test_legend_s", pop_map, "repeat")
-    assert legend2 == {"test_legend_s": "repeat cmd"}, f"Failed: got {legend2}"
+    assert legend2 == {"test legend s": "repeat cmd"}, f"Failed: got {legend2}"
     print("  ✓ Specific mode legend works")
 
     _cleanup_single("test_legend_s")
@@ -2230,6 +2231,29 @@ def test_edge_debounce_mode_switch_cancels():
 
     print()
 
+def test_legend_multiple_cases():
+    print("Testing legend keeps each case for a shared base...")
+
+    legend = build_legend({
+        "pop": ("click", lambda: None),
+        "hiss:th_100": ("scroll", lambda: None),
+        "hiss_stop": ("stop", lambda: None),
+        "left_up:dur<300": ("tap", lambda: None),
+        "left_up:dur>=300": ("hold", lambda: None),
+        "cluck": ("", lambda: None),
+    })
+
+    assert legend == {
+        "pop": "click",
+        "hiss": "scroll",
+        "hiss stop": "stop",
+        "left up < 300ms": "tap",
+        "left up >= 300ms": "hold",
+    }, f"Failed: got {legend}"
+    print("  ✓ dur cases get their own rows, lone bases stay bare")
+
+    print()
+
 def test_dur_up_creates_base_pairs():
     print("Testing dur _up creates base_pairs...")
 
@@ -2774,6 +2798,7 @@ def run_tests():
     test_edge_debounce_mode_switch_cancels()
 
     # Duration (dur) tests
+    test_legend_multiple_cases()
     test_dur_up_creates_base_pairs()
     test_dur_basic_up()
     test_dur_basic_stop()

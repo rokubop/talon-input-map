@@ -7,6 +7,7 @@ active simultaneously, each processing inputs independently.
 """
 from talon import actions
 from .input_map import InputMap, InputMapEvent
+from .input_map_parse import build_legend
 
 # Registry of channel name -> InputMap instance
 _channels: dict[str, InputMap] = {}
@@ -144,41 +145,7 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
         fallback = input_map.get("default", input_map.get(first_key, {}))
         input_map = input_map.get(mode, fallback)
 
-    import re
-
-    # Collect all entries with labels
-    entries = []
-    for input_key, action_tuple in input_map.items():
-        if isinstance(action_tuple, tuple):
-            if len(action_tuple) == 0:
-                continue
-            label = action_tuple[0]
-        else:
-            label = action_tuple
-        if label == "":
-            continue
-        base = input_key.split(":")[0]
-        entries.append((input_key, base, label))
-
-    # Count how many entries share each base key
-    base_counts = {}
-    for _, base, _ in entries:
-        base_counts[base] = base_counts.get(base, 0) + 1
-
-    legend = {}
-    for input_key, base, label in entries:
-        if base_counts[base] > 1:
-            # Format modifier readably for display
-            modifier = input_key[len(base):]
-            modifier = re.sub(r":dur([<>=]+)(\d+)", r" \1 \2ms", modifier)
-            modifier = re.sub(r":(th|db|now)_?\d*", "", modifier)
-            display = f"{base}{modifier}".replace("_", " ")
-        else:
-            display = base.replace("_", " ")
-            # Strip all modifiers for single entries
-        legend[display] = label
-
-    return legend
+    return build_legend(input_map)
 
 
 def channel_event_register(channel: str, on_input: callable):
