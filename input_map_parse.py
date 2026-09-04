@@ -20,9 +20,7 @@ LEGEND_AFTER_PATTERN = re.compile(r"^after_(\d+)$")
 
 
 def _legend_segment(segment: str):
-    """One ':' segment as a legend token. Returns (variable, text), where
-    variable is the condition variable the text elides when a group shares it,
-    or None for a token that carries no variable. (None, None) means hide."""
+    """One ':' segment as a legend token. Returns (variable, text)"""
     if LEGEND_HIDDEN_MODIFIERS.match(segment):
         return (None, None)
     match = LEGEND_AFTER_PATTERN.match(segment)
@@ -39,15 +37,7 @@ def _legend_segment(segment: str):
 
 
 def build_legend(commands: dict) -> dict:
-    """{input: label} for display, sized for a HUD column.
-
-    A lone binding shows the bare input. A base with several bindings shows only
-    what separates them: hidden modifiers (':th', ':db', ':now') drop out, and a
-    condition variable every row of the group shares drops out too, since
-    repeating it in each row separates nothing. So 'left_up:dur<300' beside
-    'left_up:dur>=300' reads 'left up < 300', while 'pop:power>10' beside
-    'pop:f0<100' keeps both names.
-    """
+    """{input: label} for display, sized for a HUD column."""
     entries = []
     for input_key, action in commands.items():
         if isinstance(action, tuple):
@@ -554,9 +544,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
             if mod_name in edge_triggered_bases:
                 raise ValueError(
                     f"""
-Modifier '{mod_name}' uses ':init' but is edge-triggered.
-A modifier on an edge-triggered base matches by region, and no region can hold
-mode_age, so this binding would never fire.
+Cannot use ':init' '{mod_name}' with an edge-triggered base.
 Put ':init' on the activator side of a plain modifier instead.
 """
                 )
@@ -567,9 +555,7 @@ Put ':init' on the activator side of a plain modifier instead.
         if _uses_mode_age(entries):
             raise ValueError(
                 f"""
-'{base_key}' combines ':init' with ':else'.
-Edge-triggered regions re-evaluate on input, but mode_age changes with time, so
-the else branch would never fire again once the window shuts.
+'Cannot combine {base_key}'s ':init' with ':else'.
 Pair ':init' with a plain unconditioned key instead.
 """
             )

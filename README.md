@@ -175,7 +175,7 @@ Combo window is `user.input_map_combo_window` (300ms default).
 "pop:now":   ("jump start", lambda: actions.user.jump_start()),
 "pop pop":   ("full jump",  lambda: actions.user.full_jump()),
 ```
-A combo prefix normally waits out the combo window before firing. `:now` fires it immediately and still tracks the combo.
+When you add a combo like `pop pop` or `pop cluck`, the first noise (`pop`) becomes a 300ms deferred action (waiting for the next input to see if it forms a combo). Use `:now` to fire it immediately and still track the combo.
 
 **After**
 ```py
@@ -258,11 +258,7 @@ parrot(hiss:stop): user.input_map_handle("hiss_stop")
 "hiss_stop:dur<300":  ("brief",     lambda: actions.user.tap()),
 "hiss_stop:dur>=300": ("sustained", lambda: actions.user.hold()),
 ```
-`dur` is ms between a start and its `_stop` or `_up` pair, so it only exists on those keys - `hiss_stop`, `left_up`. Tap vs hold, without a timer of your own.
-
-Write it as a set of branches, not a single binding - one `dur` alone leaves every other duration unhandled.
-
-No recorded start means `dur` is `None` and no `dur` condition matches, so a lone `pop` falls through to its plain binding.
+`dur` must be used on a `_stop` or `_up` key, and signifies the duration between the respective start and stop.
 
 **Bool (noise start/stop)**
 ```py
@@ -298,7 +294,7 @@ Conditions on the modifier side target specific regions:
 
 **Edge debounce**
 
-Stabilize edge-triggered region transitions to prevent flicker. `user.input_map_edge_debounce_ms` delays the transition by that many ms, so rapid flicker inside the window settles to the final state. `_active_region` keeps the old value meanwhile. Default `0` (off, identical to no debounce).
+`user.input_map_edge_debounce_ms` setting is for helping with `>` and `<` edge-triggered conditions, to prevent rapid flicker when crossing the threshold.
 
 **Context params**
 ```py
@@ -306,7 +302,6 @@ Stabilize edge-triggered region transitions to prevent flicker. `user.input_map_
 "gaze:x<-0.5":     ("aim",  lambda x, y: actions.user.aim(x, y)),
 "hiss_stop":       ("held", lambda dur: print(dur)),
 ```
-Name context variables as lambda params and they get passed in: `power`, `f0`, `f1`, `f2`, `x`, `y`, `value`, `dur`. All params must be context names, otherwise nothing is injected. Variable patterns use their `$var` params instead.
 
 **Composing modifiers**
 
@@ -333,33 +328,6 @@ Get a `{input: label}` dict for the current mode - useful for building HUDs or d
 legend = actions.user.input_map_get_legend()
 # {"pop": "click", "tut": "cancel"}
 ```
-
-Empty labels are filtered out, and a lone binding shows the bare input. Rows are
-sized for a HUD column, so a base with several bindings shows only what separates
-them:
-
-```py
-"pop":              ("click", ...),
-"left_up:dur<300":  ("tap",   ...),
-"left_up:dur>=300": ("hold",  ...),
-# {"pop": "click", "left up < 300": "tap", "left up >= 300": "hold"}
-```
-
-`:th`, `:db` and `:now` never show. A condition variable every row of the group
-shares drops out too - repeating `dur` in both rows above separates nothing. Rows
-that condition on *different* variables keep their names:
-
-```py
-"pop:power>10": ("loud", ...),
-"pop:f0<100":   ("low",  ...),
-# {"pop power > 10": "loud", "pop f0 < 100": "low"}
-```
-
-`:init` shows as `init`, plus its window when you wrote one - `hiss:init_150`
-gives `hiss init 150`. Combos, cross-input modifiers and variable patterns are
-already distinct bases, so they render as written.
-
-Same rules for `input_map_channel_get_legend` and `input_map_single_get_legend`.
 
 ## Events
 
@@ -441,7 +409,7 @@ Instead of the context approach, you can use channels to have multiple input map
     actions.user.input_map_channel_unregister("combat")
     ```
 
-    Channel handlers mirror the global ones:
+4. Various `_handle` methods are the similar to the non-channel ones.
     ```talon
     parrot(pop):              user.input_map_channel_handle_parrot("combat", "pop", power, f0, f1, f2)
     face(gaze_xy):            user.input_map_channel_handle_xy("combat", "gaze", gaze_x, gaze_y)
@@ -461,7 +429,6 @@ actions.user.input_map_single_mode_get("pop")
 actions.user.input_map_single_get_legend("pop", pop_map)
 ```
 
-Handlers mirror the global ones, taking the map as the second arg:
 ```py
 actions.user.input_map_single_parrot("pop", pop_map, power, f0, f1, f2)
 actions.user.input_map_single_xy("gaze", gaze_map, x, y)
