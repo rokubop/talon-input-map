@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![Status](https://img.shields.io/badge/status-stable-green)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -12,7 +12,10 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - throttling
 - debounce
 - variable inputs
-- greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, or `value`
+- greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, `value`, or `dur`
+- tap vs hold, via `dur`
+- delayed follow-up actions
+- bindings scoped to the moment a mode is entered
 - cross-input modifiers
 
 > Formerly known as `parrot_config`.
@@ -36,16 +39,21 @@ git clone https://github.com/rokubop/talon-input-map/
 ```py
 "pop":                ("click",   lambda: actions.mouse_click(0))        # basic
 "pop cluck":          ("combo",   lambda: actions.mouse_click(2))        # combo
+"pop:now":            ("start",   lambda: actions.user.start())          # combo prefix, fire now too
+"pop:after_100":      ("hop",     lambda: actions.user.hop())            # 100ms later, unless a combo wins
 "hiss:th_90":         ("scroll",  lambda: actions.user.scroll_down())    # throttle 90ms
 "hiss_stop:db_100":   ("stop",    lambda: None)                          # debounce 100ms
 "tut $noise":         ("reverse", lambda noise: reverse(noise))          # variable
 "pop:power>10":       ("loud",    lambda: actions.user.strong_click())   # condition
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
+"left_up:dur<300":    ("tap",     lambda: actions.user.tap())            # held under 300ms
+"left_up:dur>=300":   ("hold",    lambda: actions.user.hold())           # held 300ms or more
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
+"hiss:init":          ("redirect",lambda: actions.user.other_mode())     # first 300ms of a mode
 "pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
 ```
 
-[Modes](#modes) | [Single](#single) | [Options](#options) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
+[Modes](#modes) | [Single](#single) | [Options](#options) | [Now](#now) | [After](#after) | [Init window](#init-window) | [Duration](#condition-duration) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Settings](#settings) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
 
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
@@ -59,10 +67,12 @@ git clone https://github.com/rokubop/talon-input-map/
   - [Legend](#legend)
   - [Events](#events)
   - [Mode actions](#mode-actions)
+  - [Other actions](#other-actions)
   - [Channels - multiple input maps at the same time](#channels---multiple-input-maps-at-the-same-time)
   - [Single actions](#single-actions)
   - [Testing](#testing)
   - [Dependencies](#dependencies)
+  - [More Talon packages](#more-talon-packages)
 
 ## Usage - simple
 
@@ -158,6 +168,22 @@ parrot(cluck): user.input_map_handle("cluck")
 "pop":       ("click", lambda: actions.mouse_click(0)),
 "pop cluck": ("combo", lambda: actions.mouse_click(2)),  # pop delayed 300ms waiting for cluck
 ```
+Combo window is `user.input_map_combo_window` (300ms default).
+
+**Now**
+```py
+"pop:now":   ("jump start", lambda: actions.user.jump_start()),
+"pop pop":   ("full jump",  lambda: actions.user.full_jump()),
+```
+When you add a combo like `pop pop` or `pop cluck`, the first noise (`pop`) becomes a 300ms deferred action (waiting for the next input to see if it forms a combo). Use `:now` to fire it immediately and still track the combo.
+
+**After**
+```py
+"pop:now":       ("jump start", lambda: actions.user.jump_start()),
+"pop:after_100": ("short hop",  lambda: actions.user.short_hop()),
+"pop pop":       ("full jump",  lambda: actions.user.full_jump()),
+```
+`:after_100` fires 100ms after the input. Cancelled if a combo consumes that input, so single pop is a short hop and double pop is a full jump. Repeating the input reschedules it. Pairs with `:now` for "act instantly, commit later unless something else arrives".
 
 **Throttle / Debounce**
 ```talon
@@ -169,6 +195,20 @@ parrot(hiss:stop): user.input_map_handle("hiss_stop")
 "hiss_stop:db_100": ("stop",   lambda: None),                       # wait 100ms before stopping
 ```
 Use `":th"` or `":db"` for defaults.
+
+**Init window**
+```py
+"hiss:init": ("canvas scale",  lambda: actions.user.canvas_scale()),
+"hiss":      ("canvas resume", lambda: actions.user.canvas_resume()),
+```
+Use `hiss:init` to declare how hiss should behave if triggered within `300ms` of activating the input map mode.
+
+Writing `hiss:init` is the same as writing `hiss:init_300` (user setting).
+
+`hiss:init_1000` means within the first `1000ms` of activating the input map mode, `hiss` will behave according to the `init_1000` definition.
+
+Cannot be combined with `":else"`.
+Pair `":init"` with a plain unconditioned key, as above.
 
 **Variable pattern**
 ```talon
@@ -209,6 +249,17 @@ face(dimple_left:change): user.input_map_handle_value("dimple_left", value)
 ```
 Requires `input_map_handle_value` for `value`.
 
+**Condition (duration)**
+```talon
+parrot(hiss):      user.input_map_handle("hiss")
+parrot(hiss:stop): user.input_map_handle("hiss_stop")
+```
+```py
+"hiss_stop:dur<300":  ("brief",     lambda: actions.user.tap()),
+"hiss_stop:dur>=300": ("sustained", lambda: actions.user.hold()),
+```
+`dur` must be used on a `_stop` or `_up` key, and signifies the duration between the respective start and stop.
+
 **Bool (noise start/stop)**
 ```py
 noise.register("hiss", lambda active: actions.user.input_map_handle_bool("hiss", active))
@@ -243,18 +294,29 @@ Conditions on the modifier side target specific regions:
 
 **Edge debounce**
 
-Stabilize edge-triggered region transitions to prevent flicker:
+`user.input_map_edge_debounce_ms` setting is for helping with `>` and `<` edge-triggered conditions, to prevent rapid flicker when crossing the threshold.
+
+**Context params**
 ```py
-settings():
-    user.input_map_edge_debounce_ms = 50
+"pop:power>10":    ("loud", lambda power: actions.user.click(power)),
+"gaze:x<-0.5":     ("aim",  lambda x, y: actions.user.aim(x, y)),
+"hiss_stop":       ("held", lambda dur: print(dur)),
 ```
-When set, region transitions are delayed by the specified ms. Rapid flicker within the debounce window settles to the final state. `_active_region` retains the old value during the window. Default is `0` (off, identical to current behavior).
 
 **Composing modifiers**
 
 Conditions, throttle, and debounce can be combined:
 ```py
 "pop:power>10:th_100": ("throttled loud click", lambda: actions.user.strong_click()),
+```
+`:after_` is the exception - it keys off the base input only, so conditions and throttle on the same key are ignored.
+
+**Settings**
+```talon
+settings():
+    user.input_map_combo_window = 300     # ms to wait for a combo
+    user.input_map_init_window = 300      # window a bare ":init" covers
+    user.input_map_edge_debounce_ms = 0   # edge transition debounce, 0 = off
 ```
 
 ---
@@ -267,8 +329,6 @@ legend = actions.user.input_map_get_legend()
 # {"pop": "click", "tut": "cancel"}
 ```
 
-Modifiers are stripped and empty labels are filtered out.
-
 ## Events
 
 Listen to every input that fires through input map:
@@ -278,9 +338,12 @@ def on_input(event):
 
 actions.user.input_map_event_register(on_input)
 actions.user.input_map_event_unregister(on_input)
+
+actions.user.input_map_channel_event_register("combat", on_input)
+actions.user.input_map_channel_event_unregister("combat", on_input)
 ```
 
-Works globally across input map, channels, and singles.
+Works globally across input map, channels, and singles. The channel variants only see one channel.
 
 ## Mode actions
 
@@ -289,6 +352,23 @@ actions.user.input_map_mode_set("combat")
 actions.user.input_map_mode_cycle()
 actions.user.input_map_mode_revert()
 actions.user.input_map_mode_get()
+```
+
+## Other actions
+
+```py
+actions.user.input_map_get()          # input map dict for the current mode
+actions.user.input_map_get("combat")  # for a named mode
+actions.user.input_map_reset()        # drop the cache, re-read on the next input
+```
+
+Read voice commands out of a `.talon` file, for HUDs that list both noises and commands:
+```py
+actions.user.input_map_get_talon_commands("talon-game-sheepy/sheepy_game.talon")
+# {"jump": 'user.gamekit_button_tap("a")', ...}
+
+actions.user.input_map_get_talon_commands_grouped("talon-game-sheepy/sheepy_game.talon")
+# {"WASD": ["go", "back"], "Combat": ["hit", "strong"]}   # grouped by "# Section" comments
 ```
 
 ## Channels - multiple input maps at the same time
@@ -322,7 +402,21 @@ Instead of the context approach, you can use channels to have multiple input map
     actions.user.input_map_channel_mode_set("combat", "defensive")
     actions.user.input_map_channel_mode_cycle("combat")
     actions.user.input_map_channel_mode_revert("combat")
+    actions.user.input_map_channel_mode_get("combat")
+    actions.user.input_map_channel_get("combat")
+    actions.user.input_map_channel_get_legend("combat")
+    actions.user.input_map_channel_list()
     actions.user.input_map_channel_unregister("combat")
+    ```
+
+4. Various `_handle` methods are the similar to the non-channel ones.
+    ```talon
+    parrot(pop):              user.input_map_channel_handle_parrot("combat", "pop", power, f0, f1, f2)
+    face(gaze_xy):            user.input_map_channel_handle_xy("combat", "gaze", gaze_x, gaze_y)
+    face(dimple_left:change): user.input_map_channel_handle_value("combat", "dimple_left", value)
+    ```
+    ```py
+    noise.register("hiss", lambda active: actions.user.input_map_channel_handle_bool("combat", "hiss", active))
     ```
 
 ## Single actions
@@ -333,6 +427,13 @@ actions.user.input_map_single_mode_cycle("pop")
 actions.user.input_map_single_mode_revert("pop")
 actions.user.input_map_single_mode_get("pop")
 actions.user.input_map_single_get_legend("pop", pop_map)
+```
+
+```py
+actions.user.input_map_single_parrot("pop", pop_map, power, f0, f1, f2)
+actions.user.input_map_single_xy("gaze", gaze_map, x, y)
+actions.user.input_map_single_value("dimple_left", dimple_map, value)
+actions.user.input_map_single_bool("hiss", hiss_map, active)
 ```
 
 Map formats - just callables, with labels, or expanded for combos/modifiers:

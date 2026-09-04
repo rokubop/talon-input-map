@@ -14,6 +14,7 @@ from .input_map_parse import (
     parse_condition,
     extract_conditions,
     evaluate_conditions,
+    build_legend,
 )
 from .input_map_channel import (
     channel_register,
@@ -508,10 +509,11 @@ def test_channel_get_legend():
     channel_register("test_legend", test_config)
 
     legend = channel_get_legend("test_legend")
-    assert legend.get("pop") == "Click", f"Failed: got {legend}"
-    assert legend.get("hiss") == "Scroll", f"Failed: modifier not stripped, got {legend}"
-    assert "cluck" not in legend, f"Failed: empty label not filtered, got {legend}"
-    print("  ✓ Legend generated correctly")
+    assert legend == {
+        "pop": "Click",
+        "hiss": "Scroll",
+    }, f"Failed: got {legend}"
+    print("  ✓ Legend generated correctly (modifier hidden, empty label filtered)")
 
     channel_unregister("test_legend")
     print()
@@ -1428,11 +1430,11 @@ def test_single_get_legend():
     }
 
     legend = single_get_legend("test_legend_s", pop_map)
-    assert legend == {"test_legend_s": "left click"}, f"Failed: got {legend}"
+    assert legend == {"test legend s": "left click"}, f"Failed: got {legend}"
     print("  ✓ Returns {input: label}")
 
     legend2 = single_get_legend("test_legend_s", pop_map, "repeat")
-    assert legend2 == {"test_legend_s": "repeat cmd"}, f"Failed: got {legend2}"
+    assert legend2 == {"test legend s": "repeat cmd"}, f"Failed: got {legend2}"
     print("  ✓ Specific mode legend works")
 
     _cleanup_single("test_legend_s")
@@ -2230,6 +2232,29 @@ def test_edge_debounce_mode_switch_cancels():
 
     print()
 
+def test_legend_multiple_cases():
+    print("Testing legend keeps each case for a shared base...")
+
+    legend = build_legend({
+        "pop": ("click", lambda: None),
+        "hiss:th_100": ("scroll", lambda: None),
+        "hiss_stop": ("stop", lambda: None),
+        "left_up:dur<300": ("tap", lambda: None),
+        "left_up:dur>=300": ("hold", lambda: None),
+        "cluck": ("", lambda: None),
+    })
+
+    assert legend == {
+        "pop": "click",
+        "hiss": "scroll",
+        "hiss stop": "stop",
+        "left up < 300ms": "tap",
+        "left up >= 300ms": "hold",
+    }, f"Failed: got {legend}"
+    print("  ✓ dur cases get their own rows, lone bases stay bare")
+
+    print()
+
 def test_dur_up_creates_base_pairs():
     print("Testing dur _up creates base_pairs...")
 
@@ -2488,6 +2513,329 @@ def test_input_map_after_reschedule():
 
     print()
 
+def test_init_parse():
+    print("Testing ':init' parsing...")
+
+    assert parse_condition("init") == ("mode_age", "<", 300.0), parse_condition("init")
+    assert parse_condition("init_150") == ("mode_age", "<", 150.0), parse_condition("init_150")
+    assert parse_condition("initial") is None, "'initial' should not parse as init"
+    assert parse_condition("init_") is None, "'init_' should not parse as init"
+    print("  ✓ init / init_N desugar to mode_age")
+
+    assert has_conditions("pop:init") is True
+    assert has_conditions("pop:init_150") is True
+    print("  ✓ init counts as a condition")
+
+    cleaned, conditions = extract_conditions("pop:init:db_100")
+    assert cleaned == "pop:db_100", f"Failed: got {cleaned}"
+    assert conditions == [("mode_age", "<", 300.0)], f"Failed: got {conditions}"
+    print("  ✓ init strips from the key and composes with debounce")
+
+    print()
+
+def test_init_basic():
+    print("Testing ':init' window...")
+
+    executed = []
+    test_config = {
+        "pop:init": ("gateway", lambda: executed.append("gateway")),
+        "pop": ("normal", lambda: executed.append("normal")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["gateway"], f"Failed: got {executed}"
+    print("  ✓ Inside the window takes the init binding")
+
+    executed.clear()
+    actions.sleep("350ms")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Past the window falls through to the plain key")
+
+    print()
+
+def test_init_explicit_window():
+    print("Testing ':init_N' explicit window...")
+
+    executed = []
+    test_config = {
+        "pop:init_150": ("gateway", lambda: executed.append("gateway")),
+        "pop": ("normal", lambda: executed.append("normal")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    actions.sleep("50ms")
+    input_map.execute("pop")
+    assert executed == ["gateway"], f"Failed: got {executed}"
+
+    executed.clear()
+    actions.sleep("150ms")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Per-key window is honored")
+
+    print()
+
+def test_init_no_binding_no_clock():
+    print("Testing ':init' gating...")
+
+    input_map = InputMap()
+    input_map.setup({"pop": ("normal", lambda: None)})
+    assert input_map.has_mode_age is False, "has_mode_age should be off without ':init'"
+
+    input_map.setup({"pop:init": ("gateway", lambda: None), "pop": ("normal", lambda: None)})
+    assert input_map.has_mode_age is True, "has_mode_age should be on with ':init'"
+    print("  ✓ mode_age is only computed for maps that use it")
+
+    print()
+
+def test_init_restamps_on_mode_change():
+    print("Testing ':init' restamps on mode change...")
+
+    executed = []
+    test_config = {
+        "a": {
+            "pop:init": ("a gateway", lambda: executed.append("a_gateway")),
+            "pop": ("a normal", lambda: executed.append("a_normal")),
+        },
+        "b": {
+            "pop": ("b normal", lambda: executed.append("b_normal")),
+        },
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    input_map.execute("pop")
+    assert executed == ["a_gateway"], f"Failed: got {executed}"
+
+    executed.clear()
+    actions.sleep("350ms")
+    input_map.execute("pop")
+    assert executed == ["a_normal"], f"Failed: got {executed}"
+    print("  ✓ Window shuts while the mode stays put")
+
+    # Re-entry serves mode 'a' from _mode_cache, where has_mode_age was missing.
+    executed.clear()
+    input_map.setup_mode("b")
+    input_map.setup_mode("a")
+    input_map.execute("pop")
+    assert executed == ["a_gateway"], f"Failed: got {executed}"
+    print("  ✓ Re-entering the mode reopens the window (cached path)")
+
+    print()
+
+def test_init_same_mode_does_not_restamp():
+    print("Testing ':init' ignores a no-op mode set...")
+
+    executed = []
+    test_config = {
+        "a": {
+            "pop:init": ("gateway", lambda: executed.append("gateway")),
+            "pop": ("normal", lambda: executed.append("normal")),
+        },
+        "b": {"pop": ("b", lambda: executed.append("b"))},
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+    input_map.setup_mode("a")
+
+    actions.sleep("350ms")
+    input_map.setup_mode("a")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Setting the mode it is already in does not reopen the window")
+
+    print()
+
+def test_init_rejects_else():
+    print("Testing ':init' rejects an else branch...")
+
+    test_config = {
+        "pop:init": ("gateway", lambda: None),
+        "pop:else": ("normal", lambda: None),
+    }
+
+    input_map = InputMap()
+    try:
+        input_map.setup(test_config)
+        assert False, "Failed: expected ValueError for ':init' with ':else'"
+    except ValueError as e:
+        assert "init" in str(e), f"Failed: unexpected error {e}"
+    print("  ✓ init + else raises at setup")
+
+    print()
+
+def test_legend_hud_shapes():
+    print("Testing legend rendering per modifier kind...")
+
+    # (name, keys, expected display rows in order)
+    cases = [
+        ("lone base",
+         ["pop"],
+         ["pop"]),
+        ("underscored base",
+         ["left_up"],
+         ["left up"]),
+        ("throttle and debounce hidden",
+         ["hiss:th_90", "hiss_stop:db_100"],
+         ["hiss", "hiss stop"]),
+        ("bare throttle hidden",
+         ["hiss:th", "hiss_stop:db"],
+         ["hiss", "hiss stop"]),
+        ("dur pair drops the variable",
+         ["left_up:dur<300", "left_up:dur>=300", "pop"],
+         ["left up < 300", "left up >= 300", "pop"]),
+        ("three dur branches",
+         ["hiss_stop:dur<200", "hiss_stop:dur<600", "hiss_stop:dur>=600"],
+         ["hiss stop < 200", "hiss stop < 600", "hiss stop >= 600"]),
+        ("lone dur needs no modifier",
+         ["left_up:dur<300", "pop"],
+         ["left up", "pop"]),
+        ("init",
+         ["hiss:init", "hiss"],
+         ["hiss init", "hiss"]),
+        ("init keeps an explicit window",
+         ["hiss:init_150", "hiss"],
+         ["hiss init 150", "hiss"]),
+        ("init composed with throttle",
+         ["hiss:init:th_90", "hiss:th_90"],
+         ["hiss init", "hiss"]),
+        ("power branches drop the variable",
+         ["pop:power>10", "pop:power<=10"],
+         ["pop > 10", "pop <= 10"]),
+        ("mixed variables keep both names",
+         ["pop:power>10", "pop:f0<100"],
+         ["pop power > 10", "pop f0 < 100"]),
+        ("negative and fractional values",
+         ["gaze:x<-0.5", "gaze:x>0.5", "gaze:else"],
+         ["gaze < -0.5", "gaze > 0.5", "gaze else"]),
+        ("now hidden, after shown",
+         ["pop:now", "pop pop", "pop:after_100"],
+         ["pop", "pop pop", "pop after 100"]),
+        ("compose condition with throttle",
+         ["pop:power>10:th_100", "pop"],
+         ["pop > 10", "pop"]),
+        ("combos are their own base",
+         ["pop", "pop pop", "tut pop"],
+         ["pop", "pop pop", "tut pop"]),
+        ("cross-input modifier untouched",
+         ["pedal + pop", "pop"],
+         ["pedal + pop", "pop"]),
+        ("variable pattern untouched",
+         ["tut $noise", "pop"],
+         ["tut $noise", "pop"]),
+    ]
+
+    for name, keys, expected in cases:
+        commands = {key: (f"label {i}", lambda: None) for i, key in enumerate(keys)}
+        legend = build_legend(commands)
+        assert list(legend.keys()) == expected, f"Failed [{name}]: got {list(legend.keys())}"
+        assert list(legend.values()) == [f"label {i}" for i in range(len(keys))], \
+            f"Failed [{name}]: labels got reordered or dropped: {legend}"
+        print(f"  ✓ {name}: {'  |  '.join(expected)}")
+
+    print()
+
+def test_legend_filters_empty_labels():
+    print("Testing legend filters empty labels...")
+
+    legend = build_legend({
+        "pop": ("click", lambda: None),
+        "cluck": ("", lambda: None),
+        "sh_stop": ("", lambda: None),
+        "hiss": "bare string label",
+        "empty_tuple": (),
+    })
+    assert legend == {
+        "pop": "click",
+        "hiss": "bare string label",
+    }, f"Failed: got {legend}"
+    print("  ✓ Empty labels and empty tuples drop out; a bare string is a label")
+
+    # An empty label still hides the row, but it must not make its sibling
+    # look like a lone binding and lose the modifier that separates them.
+    legend = build_legend({
+        "left_up:dur<300": ("tap", lambda: None),
+        "left_up:dur>=300": ("", lambda: None),
+    })
+    assert legend == {"left up": "tap"}, f"Failed: got {legend}"
+    print("  ✓ A hidden sibling leaves the visible row bare")
+
+    print()
+
+def test_legend_real_world_map_unchanged():
+    print("Testing legend on a real-world map...")
+
+    # Shape taken from talon-game-celeste-parrot, the only consumer in the wild.
+    # These rows must read the same as they did before the legend was unified.
+    legend = build_legend({
+        "sh:th_90":   ("jump 1", lambda: None),
+        "sh_stop":    ("", lambda: None),
+        "ss":         ("jump 2", lambda: None),
+        "ss_stop":    ("", lambda: None),
+        "ah":         ("left", lambda: None),
+        "oh":         ("right", lambda: None),
+        "pop":        ("dash f", lambda: None),
+        "mm:th_90":   ("dash f down", lambda: None),
+        "tut tut":    ("exit mode", lambda: None),
+        "tut pop":    ("dash b", lambda: None),
+        "cluck cluck": ("save", lambda: None),
+    })
+    assert legend == {
+        "sh": "jump 1",
+        "ss": "jump 2",
+        "ah": "left",
+        "oh": "right",
+        "pop": "dash f",
+        "mm": "dash f down",
+        "tut tut": "exit mode",
+        "tut pop": "dash b",
+        "cluck cluck": "save",
+    }, f"Failed: got {legend}"
+    print("  ✓ No colons, no underscores, one row per sound")
+
+    print()
+
+def test_init_modifier_arms_clock():
+    print("Testing modifier-side ':init' arms the clock...")
+
+    input_map = InputMap()
+    input_map.setup({
+        "pedal_up": ("release", lambda: None),
+        "pedal:init + pop": ("gated", lambda: None),
+        "pop": ("plain", lambda: None),
+    })
+    assert input_map.has_mode_age is True, \
+        "has_mode_age should be on for a modifier-side ':init'"
+    print("  ✓ 'pedal:init + pop' is not a dead binding")
+
+    print()
+
+def test_init_modifier_edge_triggered_raises():
+    print("Testing modifier-side ':init' rejects an edge-triggered base...")
+
+    input_map = InputMap()
+    try:
+        input_map.setup({
+            "gaze:x<0.5": ("region", lambda: None),
+            "gaze:else": ("off", lambda: None),
+            "gaze:init + pop": ("gated", lambda: None),
+            "pop": ("plain", lambda: None),
+        })
+        assert False, "Failed: expected ValueError for ':init' on an edge-triggered modifier"
+    except ValueError as e:
+        assert "init" in str(e), f"Failed: unexpected error {e}"
+    print("  ✓ Region matching cannot hold mode_age, so it raises at setup")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2615,6 +2963,7 @@ def run_tests():
     test_edge_debounce_mode_switch_cancels()
 
     # Duration (dur) tests
+    test_legend_multiple_cases()
     test_dur_up_creates_base_pairs()
     test_dur_basic_up()
     test_dur_basic_stop()
@@ -2627,6 +2976,22 @@ def run_tests():
     test_input_map_after_with_now()
     test_input_map_after_cancels_combo_timeout()
     test_input_map_after_reschedule()
+
+    # Legend tests
+    test_legend_hud_shapes()
+    test_legend_filters_empty_labels()
+    test_legend_real_world_map_unchanged()
+
+    # Mode init window (':init') tests
+    test_init_parse()
+    test_init_basic()
+    test_init_explicit_window()
+    test_init_no_binding_no_clock()
+    test_init_restamps_on_mode_change()
+    test_init_same_mode_does_not_restamp()
+    test_init_rejects_else()
+    test_init_modifier_arms_clock()
+    test_init_modifier_edge_triggered_raises()
 
     print()
     print("=" * 50)
