@@ -334,16 +334,32 @@ legend = actions.user.input_map_get_legend()
 # {"pop": "click", "tut": "cancel"}
 ```
 
-Empty labels are filtered out. A lone binding shows the bare input. A base with several bindings keeps a readable modifier, so each case gets its own row:
+Empty labels are filtered out, and a lone binding shows the bare input. Rows are
+sized for a HUD column, so a base with several bindings shows only what separates
+them:
 
 ```py
 "pop":              ("click", ...),
 "left_up:dur<300":  ("tap",   ...),
 "left_up:dur>=300": ("hold",  ...),
-# {"pop": "click", "left up < 300ms": "tap", "left up >= 300ms": "hold"}
+# {"pop": "click", "left up < 300": "tap", "left up >= 300": "hold"}
 ```
 
-`:th`, `:db` and `:now` never show. Same rules for `input_map_channel_get_legend` and `input_map_single_get_legend`.
+`:th`, `:db` and `:now` never show. A condition variable every row of the group
+shares drops out too - repeating `dur` in both rows above separates nothing. Rows
+that condition on *different* variables keep their names:
+
+```py
+"pop:power>10": ("loud", ...),
+"pop:f0<100":   ("low",  ...),
+# {"pop power > 10": "loud", "pop f0 < 100": "low"}
+```
+
+`:init` shows as `init`, plus its window when you wrote one - `hiss:init_150`
+gives `hiss init 150`. Combos, cross-input modifiers and variable patterns are
+already distinct bases, so they render as written.
+
+Same rules for `input_map_channel_get_legend` and `input_map_single_get_legend`.
 
 ## Events
 

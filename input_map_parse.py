@@ -15,13 +15,39 @@ MODE_AGE = "mode_age"
 DEFAULT_INIT_WINDOW_MS = 300
 
 
-LEGEND_DUR_PATTERN = re.compile(r":dur([<>=]+)(\d+)")
-LEGEND_HIDDEN_MODIFIERS = re.compile(r":(th|db|now)_?\d*")
+LEGEND_HIDDEN_MODIFIERS = re.compile(r"^(th|db|now)(_\d+)?$")
+LEGEND_AFTER_PATTERN = re.compile(r"^after_(\d+)$")
+
+
+def _legend_segment(segment: str):
+    """One ':' segment as a legend token. Returns (variable, text), where
+    variable is the condition variable the text elides when a group shares it,
+    or None for a token that carries no variable. (None, None) means hide."""
+    if LEGEND_HIDDEN_MODIFIERS.match(segment):
+        return (None, None)
+    match = LEGEND_AFTER_PATTERN.match(segment)
+    if match:
+        return (None, f"after {match.group(1)}")
+    match = INIT_PATTERN.match(segment)
+    if match:
+        window = match.group(1)
+        return (None, f"init {window}" if window else "init")
+    match = CONDITION_PATTERN.match(segment)
+    if match:
+        return (match.group(1), f"{match.group(1)} {match.group(2)} {match.group(3)}")
+    return (None, segment.replace("_", " "))
 
 
 def build_legend(commands: dict) -> dict:
-    """{input: label} for display. A base with several bindings keeps a readable
-    modifier so each case gets its own row; a lone binding shows the bare base."""
+    """{input: label} for display, sized for a HUD column.
+
+    A lone binding shows the bare input. A base with several bindings shows only
+    what separates them: hidden modifiers (':th', ':db', ':now') drop out, and a
+    condition variable every row of the group shares drops out too, since
+    repeating it in each row separates nothing. So 'left_up:dur<300' beside
+    'left_up:dur>=300' reads 'left up < 300', while 'pop:power>10' beside
+    'pop:f0<100' keeps both names.
+    """
     entries = []
     for input_key, action in commands.items():
         if isinstance(action, tuple):
@@ -32,22 +58,28 @@ def build_legend(commands: dict) -> dict:
             label = action
         if label == "":
             continue
-        entries.append((input_key, input_key.split(":")[0], label))
+        base, *segments = input_key.split(":")
+        tokens = [_legend_segment(s) for s in segments]
+        entries.append((base, [t for t in tokens if t[1] is not None], label))
 
     base_counts = {}
-    for _, base, _ in entries:
+    shared_vars = {}
+    for base, tokens, _ in entries:
         base_counts[base] = base_counts.get(base, 0) + 1
+        for variable, _text in tokens:
+            if variable is not None:
+                shared_vars.setdefault(base, set()).add(variable)
 
     legend = {}
-    for input_key, base, label in entries:
+    for base, tokens, label in entries:
+        parts = [base.replace("_", " ")]
         if base_counts[base] > 1:
-            modifier = input_key[len(base):]
-            modifier = LEGEND_DUR_PATTERN.sub(r" \1 \2ms", modifier)
-            modifier = LEGEND_HIDDEN_MODIFIERS.sub("", modifier)
-            display = f"{base}{modifier}".replace("_", " ")
-        else:
-            display = base.replace("_", " ")
-        legend[display] = label
+            elide = len(shared_vars.get(base, ())) == 1
+            for variable, text in tokens:
+                if variable is not None and elide:
+                    text = text[len(variable) + 1:]
+                parts.append(text)
+        legend[" ".join(parts)] = label
     return legend
 
 
@@ -510,6 +542,25 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         _uses_mode_age(entries)
         for entries in list(immediate_conditional.values()) + list(delayed_conditional.values())
     )
+
+    # Modifier-side conditions ('pedal:init + pop') are evaluated against the same
+    # context, so they have to arm the clock too or they never match.
+    for entries in modifier_commands.values():
+        for mod_name, mod_conditions, _ in entries:
+            if not mod_conditions:
+                continue
+            if not any(var == MODE_AGE for var, _, _ in mod_conditions):
+                continue
+            if mod_name in edge_triggered_bases:
+                raise ValueError(
+                    f"""
+Modifier '{mod_name}' uses ':init' but is edge-triggered.
+A modifier on an edge-triggered base matches by region, and no region can hold
+mode_age, so this binding would never fire.
+Put ':init' on the activator side of a plain modifier instead.
+"""
+                )
+            has_mode_age = True
 
     for base_key in edge_triggered_bases:
         entries = (immediate_conditional.get(base_key) or []) + (delayed_conditional.get(base_key) or [])

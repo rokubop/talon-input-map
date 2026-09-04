@@ -509,10 +509,11 @@ def test_channel_get_legend():
     channel_register("test_legend", test_config)
 
     legend = channel_get_legend("test_legend")
-    assert legend.get("pop") == "Click", f"Failed: got {legend}"
-    assert legend.get("hiss") == "Scroll", f"Failed: modifier not stripped, got {legend}"
-    assert "cluck" not in legend, f"Failed: empty label not filtered, got {legend}"
-    print("  ✓ Legend generated correctly")
+    assert legend == {
+        "pop": "Click",
+        "hiss": "Scroll",
+    }, f"Failed: got {legend}"
+    print("  ✓ Legend generated correctly (modifier hidden, empty label filtered)")
 
     channel_unregister("test_legend")
     print()
@@ -2671,6 +2672,170 @@ def test_init_rejects_else():
 
     print()
 
+def test_legend_hud_shapes():
+    print("Testing legend rendering per modifier kind...")
+
+    # (name, keys, expected display rows in order)
+    cases = [
+        ("lone base",
+         ["pop"],
+         ["pop"]),
+        ("underscored base",
+         ["left_up"],
+         ["left up"]),
+        ("throttle and debounce hidden",
+         ["hiss:th_90", "hiss_stop:db_100"],
+         ["hiss", "hiss stop"]),
+        ("bare throttle hidden",
+         ["hiss:th", "hiss_stop:db"],
+         ["hiss", "hiss stop"]),
+        ("dur pair drops the variable",
+         ["left_up:dur<300", "left_up:dur>=300", "pop"],
+         ["left up < 300", "left up >= 300", "pop"]),
+        ("three dur branches",
+         ["hiss_stop:dur<200", "hiss_stop:dur<600", "hiss_stop:dur>=600"],
+         ["hiss stop < 200", "hiss stop < 600", "hiss stop >= 600"]),
+        ("lone dur needs no modifier",
+         ["left_up:dur<300", "pop"],
+         ["left up", "pop"]),
+        ("init",
+         ["hiss:init", "hiss"],
+         ["hiss init", "hiss"]),
+        ("init keeps an explicit window",
+         ["hiss:init_150", "hiss"],
+         ["hiss init 150", "hiss"]),
+        ("init composed with throttle",
+         ["hiss:init:th_90", "hiss:th_90"],
+         ["hiss init", "hiss"]),
+        ("power branches drop the variable",
+         ["pop:power>10", "pop:power<=10"],
+         ["pop > 10", "pop <= 10"]),
+        ("mixed variables keep both names",
+         ["pop:power>10", "pop:f0<100"],
+         ["pop power > 10", "pop f0 < 100"]),
+        ("negative and fractional values",
+         ["gaze:x<-0.5", "gaze:x>0.5", "gaze:else"],
+         ["gaze < -0.5", "gaze > 0.5", "gaze else"]),
+        ("now hidden, after shown",
+         ["pop:now", "pop pop", "pop:after_100"],
+         ["pop", "pop pop", "pop after 100"]),
+        ("compose condition with throttle",
+         ["pop:power>10:th_100", "pop"],
+         ["pop > 10", "pop"]),
+        ("combos are their own base",
+         ["pop", "pop pop", "tut pop"],
+         ["pop", "pop pop", "tut pop"]),
+        ("cross-input modifier untouched",
+         ["pedal + pop", "pop"],
+         ["pedal + pop", "pop"]),
+        ("variable pattern untouched",
+         ["tut $noise", "pop"],
+         ["tut $noise", "pop"]),
+    ]
+
+    for name, keys, expected in cases:
+        commands = {key: (f"label {i}", lambda: None) for i, key in enumerate(keys)}
+        legend = build_legend(commands)
+        assert list(legend.keys()) == expected, f"Failed [{name}]: got {list(legend.keys())}"
+        assert list(legend.values()) == [f"label {i}" for i in range(len(keys))], \
+            f"Failed [{name}]: labels got reordered or dropped: {legend}"
+        print(f"  ✓ {name}: {'  |  '.join(expected)}")
+
+    print()
+
+def test_legend_filters_empty_labels():
+    print("Testing legend filters empty labels...")
+
+    legend = build_legend({
+        "pop": ("click", lambda: None),
+        "cluck": ("", lambda: None),
+        "sh_stop": ("", lambda: None),
+        "hiss": "bare string label",
+        "empty_tuple": (),
+    })
+    assert legend == {
+        "pop": "click",
+        "hiss": "bare string label",
+    }, f"Failed: got {legend}"
+    print("  ✓ Empty labels and empty tuples drop out; a bare string is a label")
+
+    # An empty label still hides the row, but it must not make its sibling
+    # look like a lone binding and lose the modifier that separates them.
+    legend = build_legend({
+        "left_up:dur<300": ("tap", lambda: None),
+        "left_up:dur>=300": ("", lambda: None),
+    })
+    assert legend == {"left up": "tap"}, f"Failed: got {legend}"
+    print("  ✓ A hidden sibling leaves the visible row bare")
+
+    print()
+
+def test_legend_real_world_map_unchanged():
+    print("Testing legend on a real-world map...")
+
+    # Shape taken from talon-game-celeste-parrot, the only consumer in the wild.
+    # These rows must read the same as they did before the legend was unified.
+    legend = build_legend({
+        "sh:th_90":   ("jump 1", lambda: None),
+        "sh_stop":    ("", lambda: None),
+        "ss":         ("jump 2", lambda: None),
+        "ss_stop":    ("", lambda: None),
+        "ah":         ("left", lambda: None),
+        "oh":         ("right", lambda: None),
+        "pop":        ("dash f", lambda: None),
+        "mm:th_90":   ("dash f down", lambda: None),
+        "tut tut":    ("exit mode", lambda: None),
+        "tut pop":    ("dash b", lambda: None),
+        "cluck cluck": ("save", lambda: None),
+    })
+    assert legend == {
+        "sh": "jump 1",
+        "ss": "jump 2",
+        "ah": "left",
+        "oh": "right",
+        "pop": "dash f",
+        "mm": "dash f down",
+        "tut tut": "exit mode",
+        "tut pop": "dash b",
+        "cluck cluck": "save",
+    }, f"Failed: got {legend}"
+    print("  ✓ No colons, no underscores, one row per sound")
+
+    print()
+
+def test_init_modifier_arms_clock():
+    print("Testing modifier-side ':init' arms the clock...")
+
+    input_map = InputMap()
+    input_map.setup({
+        "pedal_up": ("release", lambda: None),
+        "pedal:init + pop": ("gated", lambda: None),
+        "pop": ("plain", lambda: None),
+    })
+    assert input_map.has_mode_age is True, \
+        "has_mode_age should be on for a modifier-side ':init'"
+    print("  ✓ 'pedal:init + pop' is not a dead binding")
+
+    print()
+
+def test_init_modifier_edge_triggered_raises():
+    print("Testing modifier-side ':init' rejects an edge-triggered base...")
+
+    input_map = InputMap()
+    try:
+        input_map.setup({
+            "gaze:x<0.5": ("region", lambda: None),
+            "gaze:else": ("off", lambda: None),
+            "gaze:init + pop": ("gated", lambda: None),
+            "pop": ("plain", lambda: None),
+        })
+        assert False, "Failed: expected ValueError for ':init' on an edge-triggered modifier"
+    except ValueError as e:
+        assert "init" in str(e), f"Failed: unexpected error {e}"
+    print("  ✓ Region matching cannot hold mode_age, so it raises at setup")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2812,6 +2977,11 @@ def run_tests():
     test_input_map_after_cancels_combo_timeout()
     test_input_map_after_reschedule()
 
+    # Legend tests
+    test_legend_hud_shapes()
+    test_legend_filters_empty_labels()
+    test_legend_real_world_map_unchanged()
+
     # Mode init window (':init') tests
     test_init_parse()
     test_init_basic()
@@ -2820,6 +2990,8 @@ def run_tests():
     test_init_restamps_on_mode_change()
     test_init_same_mode_does_not_restamp()
     test_init_rejects_else()
+    test_init_modifier_arms_clock()
+    test_init_modifier_edge_triggered_raises()
 
     print()
     print("=" * 50)
