@@ -20,43 +20,33 @@ SEGMENTS = {
         "default": 100,
     },
     "db": {
-        "desc": "Waits this long before firing, starting over each time the input comes again. "
-                "On a stop: a start inside the wait cancels the stop and is skipped too, so a "
-                "brief gap doesn't count as letting go. On a start whose stop is debounced too: "
-                "a stop inside the wait cancels both.",
+        "desc": "Waits this long before firing, starting over each time the input comes again. On a stop: a start inside the wait cancels the stop and is skipped too, so a brief gap doesn't count as letting go. On a start whose stop is debounced too: a stop inside the wait cancels both.",
         "pattern": r"db(?:_(\d+))?",
         "unit": "ms",
         "default": 100,
     },
     "now": {
-        "desc": "Fires at once even when a combo starting with this input could still follow, "
-                "and still tracks the combo. Without it the first input of a combo waits out "
-                "the combo window.",
+        "desc": "Fires at once even when a combo starting with this input could still follow, and still tracks the combo. Without it the first input of a combo waits out the combo window.",
         "pattern": r"now",
     },
     "after": {
-        "desc": "Fires this long after the input, as well as the plain binding, unless a combo "
-                "uses the input first. The input coming again starts the wait over. One per "
-                "input, and it takes no conditions, throttle or debounce: those are dropped.",
+        "desc": "Fires this long after the input, as well as the plain binding, unless a combo uses the input first. The input coming again starts the wait over. One per input, and it takes no conditions, throttle or debounce: those are dropped.",
         "pattern": r"after_(\d+)",
         "unit": "ms",
     },
     "init": {
-        "desc": "Used in place of the plain binding for this long after the mode is entered. "
-                "Pair it with a plain key; not with else.",
+        "desc": "Used in place of the plain binding for this long after the mode is entered. Pair it with a plain key; not with else.",
         "pattern": r"init(?:_(\d+))?",
         "unit": "ms",
         "default_setting": "user.input_map_init_window",
     },
     "condition": {
-        "desc": "Fires only while the variable compares true against the number. Several on "
-                "one key all have to hold.",
+        "desc": "Fires only while the variable compares true against the number. Several on one key all have to hold.",
         # Filled in below, from CONDITION_VARIABLES and OPERATORS
         "pattern": "",
     },
     "else": {
-        "desc": "Fires when none of this input's conditions hold. Makes them edge-triggered: "
-                "once per change of which one holds, not on every event.",
+        "desc": "Fires when none of this input's conditions hold. Makes them edge-triggered: once per change of which one holds, not on every event.",
         "pattern": r"else",
     },
 }

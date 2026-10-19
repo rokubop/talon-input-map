@@ -24,16 +24,11 @@ def _values(table: dict) -> list:
 def types() -> dict:
     return {
         "segment": {
-            "desc": "A ':' segment on an input map key, as in 'pop:power>10:th_90'. "
-                    "pattern matches the whole segment, its group 1 being the number "
-                    "when it takes one; a condition's groups are variable, operator, "
-                    "number. A bare one with a default stands for it; "
-                    "default_setting names the setting that holds it instead.",
+            "desc": "A ':' segment on an input map key, as in 'pop:power>10:th_90'. pattern matches the whole segment, its group 1 being the number when it takes one; a condition's groups are variable, operator, number. A bare one with a default stands for it; default_setting names the setting that holds it instead.",
             "values": _values(SEGMENTS),
         },
         "condition_variable": {
-            "desc": "What a condition compares. Each is only there when the input comes "
-                    "in through an action that hands it over: source is which.",
+            "desc": "What a condition compares. Each is only there when the input comes in through an action that hands it over: source is which.",
             "values": _values(CONDITION_VARIABLES),
         },
         "operator": {
