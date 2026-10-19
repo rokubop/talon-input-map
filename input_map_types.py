@@ -26,7 +26,8 @@ def types() -> dict:
         "segment": {
             "desc": "A ':' segment on an input map key, as in 'pop:power>10:th_90'. "
                     "pattern matches the whole segment, its group 1 being the number "
-                    "when it takes one. A bare one with a default stands for it; "
+                    "when it takes one; a condition's groups are variable, operator, "
+                    "number. A bare one with a default stands for it; "
                     "default_setting names the setting that holds it instead.",
             "values": _values(SEGMENTS),
         },
