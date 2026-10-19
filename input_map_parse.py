@@ -4,19 +4,28 @@ This module handles setup-time processing (cold path).
 """
 import re
 import inspect
+from ._schema import SCHEMA, ids
 
-CONTEXT_KEYS = {"power", "f0", "f1", "f2", "x", "y", "value", "dur"}
-CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value|dur)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
-MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
+# schema.json is the one place the modifiers, condition variables and
+# operators are listed, with their defaults and patterns
+MODIFIERS = {m.get("title") or m["const"]: m for m in SCHEMA["$defs"]["modifier"]["oneOf"]}
+CONTEXT_KEYS = set(ids("condition_variable"))
+# Longest first, so '>=' is not read as '>'
+_OPS = "|".join(re.escape(op) for op in sorted(ids("operator"), key=len, reverse=True))
+_VARS = "|".join(ids("condition_variable"))
+CONDITION_PATTERN = re.compile(rf'^({_VARS})({_OPS})(-?\d+(?:\.\d+)?)$')
+MISFORMATTED_CONDITION_PATTERN = re.compile(rf'({_OPS})\d')
+THROTTLE_DEFAULT_MS = MODIFIERS["throttle"]["x-arg"]["default"]
+DEBOUNCE_DEFAULT_MS = MODIFIERS["debounce"]["x-arg"]["default"]
 MODIFIER_SEPARATOR = " + "
 
-INIT_PATTERN = re.compile(r'^init(?:_(\d+))?$')
+INIT_PATTERN = re.compile(MODIFIERS["init"]["pattern"])
 MODE_AGE = "mode_age"
 DEFAULT_INIT_WINDOW_MS = 300
 
 
 LEGEND_HIDDEN_MODIFIERS = re.compile(r"^(th|db|now)(_\d+)?$")
-LEGEND_AFTER_PATTERN = re.compile(r"^after_(\d+)$")
+LEGEND_AFTER_PATTERN = re.compile(MODIFIERS["after"]["pattern"])
 
 
 def _legend_segment(segment: str):
@@ -106,14 +115,14 @@ def validate_input_format(input_key: str):
     base = input_key.split(':')[0]
     for part in base.split():
         if MISFORMATTED_CONDITION_PATTERN.search(part):
-            match = re.match(r'^(.*?)(>=|<=|==|!=|>|<)(.*)', part)
-            if match and match.group(1) not in ('power', 'f0', 'f1', 'f2', 'x', 'y', 'value', 'dur'):
+            match = re.match(rf'^(.*?)({_OPS})(.*)', part)
+            if match and match.group(1) not in CONTEXT_KEYS:
                 print(
                     f"\nWarning: '{input_key}' looks like it contains a condition "
                     f"but '{match.group(1)}' is not a condition variable.\n"
                     f"Did you mean: '{match.group(1)}:value{match.group(2)}{match.group(3)}'?\n"
                     f"Valid condition format: 'input_name:variable>threshold'\n"
-                    f"Valid variables: power, f0, f1, f2, x, y, value, dur\n"
+                    f"Valid variables: {', '.join(ids('condition_variable'))}\n"
                 )
 
 def parse_condition(segment: str):
@@ -223,12 +232,12 @@ def get_modified_action(input, action, throttle_busy, debounce_busy):
 
     if ":th" in input:
         match = re.search(r':th_(\d+)', input)
-        throttle_amount = int(match.group(1)) if match else 100
+        throttle_amount = int(match.group(1)) if match else THROTTLE_DEFAULT_MS
         base_input = input.replace(f":th_{throttle_amount}", "")
         return (action[0], lambda: input_map_throttle(throttle_amount, base_input, action[1], throttle_busy))
     if ":db" in input:
         match = re.search(r':db_(\d+)', input)
-        debounce_amount = int(match.group(1)) if match else 100
+        debounce_amount = int(match.group(1)) if match else DEBOUNCE_DEFAULT_MS
         base_input = input.replace(f":db_{debounce_amount}", "")
         return (action[0], lambda: input_map_debounce(debounce_amount, base_input, action[1], debounce_busy))
     return action

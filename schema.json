@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "user.input_map",
+  "x-format": 1,
+  "description": "What input_map's keys accept beyond its actions' signatures.",
+  "$defs": {
+    "input_key": {
+      "description": "A key of an input map dict, as passed to input_map_channel_register or input_map_single or returned by an input_map override: an input name, or names for a combo ('pop cluck'), then ':' modifiers ('pop:power>10:th_100').",
+      "type": "string"
+    },
+    "modifier": {
+      "description": "A ':' segment on an input map key.",
+      "oneOf": [
+        {
+          "title": "throttle",
+          "pattern": "^th(_\\d+)?$",
+          "examples": [
+            "th",
+            "th_90"
+          ],
+          "description": "Fires at once, then ignores this input until this long has passed.",
+          "x-arg": {
+            "type": "integer",
+            "minimum": 0,
+            "x-unit": "ms",
+            "default": 100
+          }
+        },
+        {
+          "title": "debounce",
+          "pattern": "^db(_\\d+)?$",
+          "examples": [
+            "db",
+            "db_100"
+          ],
+          "description": "Waits this long before firing, starting over each time the input comes again. On a stop: a start inside the wait cancels the stop and is skipped too, so a brief gap doesn't count as letting go. On a start whose stop is debounced too: a stop inside the wait cancels both.",
+          "x-arg": {
+            "type": "integer",
+            "minimum": 0,
+            "x-unit": "ms",
+            "default": 100
+          }
+        },
+        {
+          "const": "now",
+          "description": "Fires at once even when a combo starting with this input could still follow, and still tracks the combo. Without it the first input of a combo waits out the combo window."
+        },
+        {
+          "title": "after",
+          "pattern": "^after_(\\d+)$",
+          "examples": [
+            "after_100"
+          ],
+          "description": "Fires this long after the input, as well as the plain binding, unless a combo uses the input first. The input coming again starts the wait over. One per input, and it takes no conditions, throttle or debounce: those are dropped.",
+          "x-arg": {
+            "type": "integer",
+            "minimum": 0,
+            "x-unit": "ms"
+          }
+        },
+        {
+          "title": "init",
+          "pattern": "^init(?:_(\\d+))?$",
+          "examples": [
+            "init",
+            "init_1000"
+          ],
+          "description": "Used in place of the plain binding for this long after the mode is entered. Pair it with a plain key; not with else.",
+          "x-arg": {
+            "type": "integer",
+            "minimum": 0,
+            "x-unit": "ms",
+            "x-default-setting": "user.input_map_init_window"
+          }
+        },
+        {
+          "title": "condition",
+          "examples": [
+            "power>10",
+            "dur<300",
+            "x<-0.5"
+          ],
+          "description": "Fires only while the variable compares true against the number. Several on one key all have to hold.",
+          "x-parts": [
+            {
+              "$ref": "#/$defs/condition_variable"
+            },
+            {
+              "$ref": "#/$defs/operator"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        {
+          "const": "else",
+          "description": "Fires when none of this input's conditions hold. Makes them edge-triggered: once per change of which one holds, not on every event."
+        }
+      ]
+    },
+    "condition_variable": {
+      "description": "What a condition compares. Each is only there when the input comes in through an action that hands it over.",
+      "oneOf": [
+        {
+          "const": "power",
+          "description": "How loud the parrot noise is.",
+          "x-provided-by": [
+            "user.input_map_handle_parrot",
+            "user.input_map_channel_handle_parrot",
+            "user.input_map_single_parrot"
+          ]
+        },
+        {
+          "const": "f0",
+          "description": "The parrot noise's pitch.",
+          "x-provided-by": [
+            "user.input_map_handle_parrot",
+            "user.input_map_channel_handle_parrot",
+            "user.input_map_single_parrot"
+          ]
+        },
+        {
+          "const": "f1",
+          "description": "The parrot noise's first formant.",
+          "x-provided-by": [
+            "user.input_map_handle_parrot",
+            "user.input_map_channel_handle_parrot",
+            "user.input_map_single_parrot"
+          ]
+        },
+        {
+          "const": "f2",
+          "description": "The parrot noise's second formant.",
+          "x-provided-by": [
+            "user.input_map_handle_parrot",
+            "user.input_map_channel_handle_parrot",
+            "user.input_map_single_parrot"
+          ]
+        },
+        {
+          "const": "x",
+          "description": "Horizontal position, as from gaze.",
+          "x-provided-by": [
+            "user.input_map_handle_xy",
+            "user.input_map_channel_handle_xy",
+            "user.input_map_single_xy"
+          ]
+        },
+        {
+          "const": "y",
+          "description": "Vertical position, as from gaze.",
+          "x-provided-by": [
+            "user.input_map_handle_xy",
+            "user.input_map_channel_handle_xy",
+            "user.input_map_single_xy"
+          ]
+        },
+        {
+          "const": "value",
+          "description": "A value the input carries, as how far a face expression is made.",
+          "x-provided-by": [
+            "user.input_map_handle_value",
+            "user.input_map_channel_handle_value",
+            "user.input_map_single_value"
+          ]
+        },
+        {
+          "const": "dur",
+          "description": "How long since the input started, in ms. Only on its '_stop' or '_up' key."
+        }
+      ]
+    },
+    "operator": {
+      "description": "How a condition compares its variable with its number.",
+      "oneOf": [
+        {
+          "const": ">",
+          "description": "greater than"
+        },
+        {
+          "const": "<",
+          "description": "less than"
+        },
+        {
+          "const": ">=",
+          "description": "at least"
+        },
+        {
+          "const": "<=",
+          "description": "at most"
+        },
+        {
+          "const": "==",
+          "description": "equal to"
+        },
+        {
+          "const": "!=",
+          "description": "not equal to"
+        }
+      ]
+    }
+  }
+}

@@ -2836,6 +2836,52 @@ def test_init_modifier_edge_triggered_raises():
 
     print()
 
+def test_schema_matches_code():
+    print("Testing schema.json against the code that reads it...")
+    from pathlib import Path
+    from ._schema import SCHEMA, ids
+    from .input_map_parse import (MODIFIERS, CONTEXT_KEYS, parse_condition,
+                                  extract_conditions, get_modified_action, categorize_commands)
+    root = Path(__file__).parent
+    settings = (root / "input_map_settings.py").read_text(encoding="utf-8")
+    handlers = (root / "input_map_actions.py").read_text(encoding="utf-8")
+    plain = ("", lambda: None)
+
+    def recognized(title, ex):
+        if title in ("throttle", "debounce"):
+            return get_modified_action(f"pop:{ex}", plain, {}, {}) is not plain
+        if title == "now":
+            got = categorize_commands({"pop:now": plain, "pop pop": plain}, {}, {})
+            return "pop" in got["immediate_commands"] and "pop" in got["delayed_commands"]
+        if title == "after":
+            return "pop" in categorize_commands({f"pop:{ex}": plain}, {}, {})["after_commands"]
+        if title in ("init", "condition"):
+            return parse_condition(ex) is not None
+        if title == "else":
+            return extract_conditions(f"pop:{ex}")[1] is None
+        return None
+
+    for title, m in MODIFIERS.items():
+        assert m.get("description"), f"modifier {title} has no description"
+        for ex in m.get("examples") or [m["const"]]:
+            got = recognized(title, ex)
+            assert got is not None, f"modifier {title} in schema.json but not known to this test"
+            assert got, f"modifier {title}: parser does not take '{ex}'"
+        setting = m.get("x-arg", {}).get("x-default-setting")
+        if setting:
+            name = setting.removeprefix("user.")
+            assert f'"{name}"' in settings, f"{title} defaults to unknown setting {name}"
+    for v in SCHEMA["$defs"]["condition_variable"]["oneOf"]:
+        assert parse_condition(f"{v['const']}>1") is not None, f"{v['const']} not parsed"
+        for action in v.get("x-provided-by", []):
+            name = action.removeprefix("user.")
+            assert f"def {name}(" in handlers, f"{v['const']} from unknown action {name}"
+    assert CONTEXT_KEYS == set(ids("condition_variable"))
+    for op in ids("operator"):
+        assert parse_condition(f"power{op}1") == ("power", op, 1.0), op
+    print("  ✓ Every modifier parses from its examples, every variable and operator parses")
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2992,6 +3038,9 @@ def run_tests():
     test_init_rejects_else()
     test_init_modifier_arms_clock()
     test_init_modifier_edge_triggered_raises()
+
+    # schema.json
+    test_schema_matches_code()
 
     print()
     print("=" * 50)
