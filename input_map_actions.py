@@ -1,4 +1,4 @@
-from talon import Module, actions, registry
+from talon import Module, actions, registry, settings
 from .input_map import (
     input_map_mode_cycle,
     input_map_mode_get,
@@ -7,8 +7,10 @@ from .input_map import (
     input_map_handle,
     input_map_event_register,
     input_map_event_unregister,
+    input_map_event_trigger,
     input_map_get,
     input_map_reset,
+    InputMapEvent,
 )
 from .input_map_channel import (
     channel_register,
@@ -23,6 +25,7 @@ from .input_map_channel import (
     channel_get_legend,
     channel_event_register,
     channel_event_unregister,
+    channel_event_trigger,
 )
 from .input_map_single import (
     single_handle,
@@ -32,7 +35,7 @@ from .input_map_single import (
     single_mode_revert,
     single_get_legend,
 )
-from .input_map_parse import build_legend
+from .input_map_parse import build_legend, parse_key, EVENT_TYPES
 from .input_map_tests import run_tests
 
 mod = Module()
@@ -270,6 +273,64 @@ class Actions:
         ```
         """
         input_map_reset()
+
+    def input_map_key_parse(key: str) -> dict:
+        """
+        What an input map key says, in parts: its inputs, whether it is a
+        release key, the 'a + b' modifier side, and each ':' segment read,
+        with a bare th, db or init given the ms it stands for.
+
+        Example:
+        ```py
+        actions.user.input_map_key_parse("pop:power>10:th")
+        # {"key": "pop:power>10:th", "base": "pop", "inputs": ["pop"],
+        #  "release": "", "released": "", "variables": [], "modifier": None,
+        #  "segments": [
+        #      {"id": "condition", "text": "power>10", "value": ["power", ">", 10.0]},
+        #      {"id": "th", "text": "th", "value": None, "ms": 100}]}
+        ```
+        A segment's id is a value of Type: input_map.segment, or "" when
+        input_map doesn't know it.
+        """
+        return parse_key(key, settings.get("user.input_map_init_window"))
+
+    def input_map_event_simulate(
+        input: str = "",
+        label: str = "",
+        mode: str = None,
+        channel: str = None,
+        event_type: str = "input",
+    ):
+        """
+        Send an event to input_map's listeners as if an input had fired,
+        without running what it is bound to. For showing what a binding
+        does, as a UI preview of a game does.
+
+        Args:
+            input: The input as events name it, e.g. "pop" or "hiss_stop"
+            label: The binding's label
+            mode: The mode the event says. Defaults to the current mode
+            channel: A channel's listeners instead of the global ones.
+                Nothing is sent if the channel isn't registered
+            event_type: "input" or "mode_change". Type: input_map.event_type
+
+        Example:
+        ```py
+        actions.user.input_map_event_simulate("pop", "jump")
+        ```
+        """
+        if event_type not in EVENT_TYPES:
+            raise ValueError(f"event_type must be one of {list(EVENT_TYPES)}, not {event_type!r}")
+        if mode is None:
+            try:
+                mode = channel_mode_get(channel) if channel else input_map_mode_get()
+            except ValueError:
+                mode = ""
+        event = InputMapEvent(type=event_type, mode=mode, input=input, label=label)
+        if channel:
+            channel_event_trigger(channel, event)
+        else:
+            input_map_event_trigger(event)
 
     # Channel-based input map actions
 

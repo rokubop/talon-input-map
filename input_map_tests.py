@@ -15,6 +15,9 @@ from .input_map_parse import (
     extract_conditions,
     evaluate_conditions,
     build_legend,
+    parse_key,
+    parse_segment,
+    CONTEXT_KEYS,
 )
 from .input_map_channel import (
     channel_register,
@@ -2836,6 +2839,58 @@ def test_init_modifier_edge_triggered_raises():
 
     print()
 
+def test_parse_key():
+    print("Testing parse_key...")
+
+    got = parse_key("pop:power>10:th", init_window_ms=500)
+    assert got["base"] == "pop" and got["inputs"] == ["pop"], got
+    assert got["modifier"] is None and got["release"] == "", got
+    assert got["segments"][0] == {"id": "condition", "text": "power>10",
+                                  "value": ["power", ">", 10.0]}, got["segments"][0]
+    assert got["segments"][1] == {"id": "th", "text": "th", "value": None, "ms": 100}, got["segments"][1]
+    print("  ✓ condition and bare throttle")
+
+    got = parse_key("left_up:dur<300")
+    assert got["release"] == "_up" and got["released"] == "left", got
+    assert got["segments"][0]["value"] == ["dur", "<", 300.0], got
+    print("  ✓ _up is a release key, dur a condition")
+
+    got = parse_key("pop:init", init_window_ms=500)
+    assert got["segments"][0]["ms"] == 500, got
+    got = parse_key("pop:init_150:after_200:now:else:huh")
+    assert [s["id"] for s in got["segments"]] == ["init", "after", "now", "else", ""], got
+    assert got["segments"][0]["ms"] == 150 and got["segments"][1]["ms"] == 200, got
+    print("  ✓ init window, after, flags, unknown segment")
+
+    got = parse_key("gaze:x<500 + pop pop:th_90")
+    assert got["inputs"] == ["pop", "pop"] and got["segments"][0]["ms"] == 90, got
+    assert got["modifier"]["base"] == "gaze", got
+    assert got["modifier"]["segments"][0]["value"] == ["x", "<", 500.0], got
+    print("  ✓ modifier side parsed on its own")
+
+    got = parse_key("hiss_stop")
+    assert got["release"] == "_stop" and got["released"] == "hiss", got
+    assert parse_key("hiss_stop hiss")["release"] == "", "a combo is not a release key"
+    print("  ✓ _stop, and not on a combo")
+
+    print()
+
+def test_types_match_parser():
+    print("Testing input_map_types against the parser...")
+    from .input_map_parse import types
+    got = types()
+    ids = {name: [v["id"] for v in s["values"]] for name, s in got.items()}
+    assert set(ids["condition_variable"]) == CONTEXT_KEYS, ids["condition_variable"]
+    for seg in got["segment"]["values"]:
+        assert seg["desc"] and seg["pattern"], seg
+    for sample, seg_id in (("th_5", "th"), ("db", "db"), ("now", "now"), ("after_1", "after"),
+                           ("init", "init"), ("f0>=2", "condition"), ("else", "else")):
+        assert parse_segment(sample)["id"] == seg_id, (sample, parse_segment(sample))
+    assert all(s["desc"] for s in got.values()), "every set is described"
+    print("  ✓ sets come from the parser's tables")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2992,6 +3047,10 @@ def run_tests():
     test_init_rejects_else()
     test_init_modifier_arms_clock()
     test_init_modifier_edge_triggered_raises()
+
+    # Key parsing and types
+    test_parse_key()
+    test_types_match_parser()
 
     print()
     print("=" * 50)

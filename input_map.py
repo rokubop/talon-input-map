@@ -9,7 +9,7 @@ from talon import Module, actions, cron, settings
 @dataclass(slots=True)
 class InputMapEvent:
     """Event fired when an input map action is triggered or mode changes."""
-    type: str        # "input" or "mode_change"
+    type: str        # one of input_map_parse.EVENT_TYPES
     mode: str        # current mode name
     input: str = ""  # input key (e.g. "pop", "hiss")
     label: str = ""  # action label (e.g. "jump", "stop")

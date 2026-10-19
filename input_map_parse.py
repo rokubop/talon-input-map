@@ -5,18 +5,131 @@ This module handles setup-time processing (cold path).
 import re
 import inspect
 
-CONTEXT_KEYS = {"power", "f0", "f1", "f2", "x", "y", "value", "dur"}
-CONDITION_PATTERN = re.compile(r'^(power|f0|f1|f2|x|y|value|dur)(>=|<=|==|!=|>|<)(-?\d+(?:\.\d+)?)$')
-MISFORMATTED_CONDITION_PATTERN = re.compile(r'(>=|<=|==|!=|>|<)\d')
-MODIFIER_SEPARATOR = " + "
+# The language of an input map key, described. The parser below reads its
+# patterns, names and defaults from these, and input_map_types() hands
+# them out, so this is the one place each is written.
 
-INIT_PATTERN = re.compile(r'^init(?:_(\d+))?$')
+# The ':' segments a key can carry. `pattern` matches the whole segment,
+# group 1 being its number when it takes one. `files_as` is which of
+# input_map's lists the key goes in: plain, condition or after.
+SEGMENTS = {
+    "th": {
+        "title": "throttle",
+        "desc": "Fires at once, then ignores this input until this long has passed.",
+        "pattern": r"th(?:_(\d+))?",
+        "unit": "ms",
+        "default": 100,
+        "files_as": "plain",
+    },
+    "db": {
+        "title": "debounce",
+        "desc": "Waits this long before firing, starting over each time the input comes again. "
+                "On a stop: a start inside the wait cancels the stop and is skipped too, so a "
+                "brief gap doesn't count as letting go. On a start whose stop is debounced too: "
+                "a stop inside the wait cancels both.",
+        "pattern": r"db(?:_(\d+))?",
+        "unit": "ms",
+        "default": 100,
+        "files_as": "plain",
+    },
+    "now": {
+        "title": "now",
+        "desc": "Fires at once even when a combo starting with this input could still follow, "
+                "and still tracks the combo. Without it the first input of a combo waits out "
+                "the combo window.",
+        "pattern": r"now",
+        "files_as": "plain",
+    },
+    "after": {
+        "title": "after",
+        "desc": "Fires this long after the input, as well as the plain binding, unless a combo "
+                "uses the input first. The input coming again starts the wait over. One per "
+                "input, and it takes no conditions, throttle or debounce: those are dropped.",
+        "pattern": r"after_(\d+)",
+        "unit": "ms",
+        "files_as": "after",
+    },
+    "init": {
+        "title": "init",
+        "desc": "Used in place of the plain binding for this long after the mode is entered. "
+                "Pair it with a plain key; not with else.",
+        "pattern": r"init(?:_(\d+))?",
+        "unit": "ms",
+        "default_setting": "user.input_map_init_window",
+        "files_as": "condition",
+    },
+    "condition": {
+        "title": "condition",
+        "desc": "Fires only while the variable compares true against the number. Several on "
+                "one key all have to hold.",
+        # Filled in below, from CONDITION_VARIABLES and OPERATORS
+        "pattern": "",
+        "files_as": "condition",
+        "repeats": True,
+    },
+    "else": {
+        "title": "else",
+        "desc": "Fires when none of this input's conditions hold. Makes them edge-triggered: "
+                "once per change of which one holds, not on every event.",
+        "pattern": r"else",
+        "files_as": "condition",
+    },
+}
+
+# What a condition compares. `source` is which handle actions hand it over:
+# parrot, xy or value; `stop` is measured by input_map on a release key.
+CONDITION_VARIABLES = {
+    "power": {"desc": "How loud the parrot noise is.", "source": "parrot"},
+    "f0": {"desc": "The parrot noise's pitch.", "source": "parrot"},
+    "f1": {"desc": "The parrot noise's first formant.", "source": "parrot"},
+    "f2": {"desc": "The parrot noise's second formant.", "source": "parrot"},
+    "x": {"desc": "Horizontal position, as from gaze.", "source": "xy"},
+    "y": {"desc": "Vertical position, as from gaze.", "source": "xy"},
+    "value": {"desc": "A value the input carries, as how far a face expression is made.",
+              "source": "value"},
+    "dur": {"desc": "How long since the input started, in ms. Only on its release key.",
+            "source": "stop"},
+}
+
+OPERATORS = {
+    ">": "greater than",
+    "<": "less than",
+    ">=": "at least",
+    "<=": "at most",
+    "==": "equal to",
+    "!=": "not equal to",
+}
+
+# The end of an input's name that makes it the input letting go.
+RELEASE_SUFFIXES = {
+    "_stop": "When the input stops, e.g. hiss_stop.",
+    "_up": "When the input is let go, e.g. a pedal's left_up.",
+}
+
+# What an InputMapEvent is about: its `type`.
+EVENT_TYPES = {
+    "input": "An input fired its binding.",
+    "mode_change": "The mode changed.",
+}
+
+CONTEXT_KEYS = set(CONDITION_VARIABLES)
+# Longest first, so '>=' is not read as '>'
+_OPS = "|".join(re.escape(op) for op in sorted(OPERATORS, key=len, reverse=True))
+_VARS = "|".join(CONDITION_VARIABLES)
+SEGMENTS["condition"]["pattern"] = rf"({_VARS})({_OPS})(-?\d+(?:\.\d+)?)"
+CONDITION_PATTERN = re.compile(rf"^{SEGMENTS['condition']['pattern']}$")
+MISFORMATTED_CONDITION_PATTERN = re.compile(rf'({_OPS})\d')
+MODIFIER_SEPARATOR = " + "
+THROTTLE_DEFAULT_MS = SEGMENTS["th"]["default"]
+DEBOUNCE_DEFAULT_MS = SEGMENTS["db"]["default"]
+
+INIT_PATTERN = re.compile(rf"^{SEGMENTS['init']['pattern']}$")
 MODE_AGE = "mode_age"
 DEFAULT_INIT_WINDOW_MS = 300
 
 
 LEGEND_HIDDEN_MODIFIERS = re.compile(r"^(th|db|now)(_\d+)?$")
-LEGEND_AFTER_PATTERN = re.compile(r"^after_(\d+)$")
+LEGEND_AFTER_PATTERN = re.compile(rf"^{SEGMENTS['after']['pattern']}$")
 
 
 def _legend_segment(segment: str):
@@ -106,14 +219,14 @@ def validate_input_format(input_key: str):
     base = input_key.split(':')[0]
     for part in base.split():
         if MISFORMATTED_CONDITION_PATTERN.search(part):
-            match = re.match(r'^(.*?)(>=|<=|==|!=|>|<)(.*)', part)
-            if match and match.group(1) not in ('power', 'f0', 'f1', 'f2', 'x', 'y', 'value', 'dur'):
+            match = re.match(rf'^(.*?)({_OPS})(.*)', part)
+            if match and match.group(1) not in CONTEXT_KEYS:
                 print(
                     f"\nWarning: '{input_key}' looks like it contains a condition "
                     f"but '{match.group(1)}' is not a condition variable.\n"
                     f"Did you mean: '{match.group(1)}:value{match.group(2)}{match.group(3)}'?\n"
                     f"Valid condition format: 'input_name:variable>threshold'\n"
-                    f"Valid variables: power, f0, f1, f2, x, y, value, dur\n"
+                    f"Valid variables: {', '.join(CONDITION_VARIABLES)}\n"
                 )
 
 def parse_condition(segment: str):
@@ -217,18 +330,117 @@ def get_base_input(input):
     base_inputs = base_combo.split(' ')
     return base_combo.strip(), base_inputs
 
+def _values(table: dict) -> list:
+    out = []
+    for name, v in table.items():
+        out.append({"id": name, **v} if isinstance(v, dict) else {"id": name, "desc": v})
+    return out
+
+def types() -> dict:
+    """The sets above as user.input_map_types() hands them out:
+    {name: {"desc": str, "values": [{"id": str, "desc": str, ...}]}}"""
+    return {
+        "segment": {
+            "desc": "A ':' segment on an input map key, as in 'pop:power>10:th_90'. "
+                    "pattern matches the whole segment, its group 1 being the number "
+                    "when it takes one. A bare one with a default stands for it; "
+                    "default_setting names the setting that holds it instead.",
+            "values": _values(SEGMENTS),
+        },
+        "condition_variable": {
+            "desc": "What a condition compares. Each is only there when the input comes "
+                    "in through an action that hands it over: source is which.",
+            "values": _values(CONDITION_VARIABLES),
+        },
+        "operator": {
+            "desc": "How a condition compares its variable with its number.",
+            "values": _values(OPERATORS),
+        },
+        "release_suffix": {
+            "desc": "The end of an input's name that makes its key the input letting go.",
+            "values": _values(RELEASE_SUFFIXES),
+        },
+        "event_type": {
+            "desc": "What an input_map event is about.",
+            "values": _values(EVENT_TYPES),
+        },
+    }
+
+def parse_segment(segment: str, init_window_ms: int = None) -> dict:
+    """One ':' segment, read the way SEGMENTS says.
+    'th_90' -> {"id": "th", "text": "th_90", "value": 90, "ms": 90}
+    'th' -> value None, ms the default. 'power>10' -> value ["power", ">", 10.0].
+    A segment it doesn't know has id ""."""
+    out = {"id": "", "text": segment, "value": None}
+    for seg_id, seg in SEGMENTS.items():
+        match = re.fullmatch(seg["pattern"], segment)
+        if not match:
+            continue
+        out["id"] = seg_id
+        if seg_id == "condition":
+            out["value"] = [match.group(1), match.group(2), float(match.group(3))]
+        elif seg.get("unit") == "ms":
+            out["value"] = int(match.group(1)) if match.group(1) else None
+            default = seg.get("default")
+            if seg.get("default_setting"):
+                default = DEFAULT_INIT_WINDOW_MS if init_window_ms is None else init_window_ms
+            out["ms"] = out["value"] if out["value"] is not None else default
+        break
+    return out
+
+def _parse_side(text: str, init_window_ms: int = None) -> dict:
+    base, *segments = text.split(":")
+    base = base.strip()
+    inputs = base.split()
+    release, released = "", ""
+    if len(inputs) == 1:
+        for suffix in RELEASE_SUFFIXES:
+            if inputs[0].endswith(suffix):
+                release, released = suffix, inputs[0][:-len(suffix)]
+                break
+    return {
+        "base": base,
+        "inputs": inputs,
+        "release": release,
+        "released": released,
+        "variables": extract_variables(base),
+        "segments": [parse_segment(s.strip(), init_window_ms) for s in segments],
+    }
+
+def parse_key(key: str, init_window_ms: int = None) -> dict:
+    """What an input map key says, in parts.
+
+    'pedal_left + pop pop:power>10:th_90' ->
+        base "pop pop", inputs ["pop", "pop"], release "", released "",
+        variables [], segments [condition, th],
+        modifier {the same, for "pedal_left"}
+
+    release is the suffix that makes it a release key ('_stop', '_up'),
+    released the input it releases. A bare init's ms is init_window_ms,
+    else the window last set."""
+    modifier = None
+    if has_modifier(key):
+        modifier_raw, key_raw = extract_modifier(key)
+        modifier = _parse_side(modifier_raw, init_window_ms)
+    else:
+        key_raw = key
+    out = _parse_side(key_raw, init_window_ms)
+    out["key"] = key
+    out["modifier"] = modifier
+    return out
+
 def get_modified_action(input, action, throttle_busy, debounce_busy):
     # Late import to avoid circular dependency
     from .input_map import input_map_throttle, input_map_debounce
 
     if ":th" in input:
         match = re.search(r':th_(\d+)', input)
-        throttle_amount = int(match.group(1)) if match else 100
+        throttle_amount = int(match.group(1)) if match else THROTTLE_DEFAULT_MS
         base_input = input.replace(f":th_{throttle_amount}", "")
         return (action[0], lambda: input_map_throttle(throttle_amount, base_input, action[1], throttle_busy))
     if ":db" in input:
         match = re.search(r':db_(\d+)', input)
-        debounce_amount = int(match.group(1)) if match else 100
+        debounce_amount = int(match.group(1)) if match else DEBOUNCE_DEFAULT_MS
         base_input = input.replace(f":db_{debounce_amount}", "")
         return (action[0], lambda: input_map_debounce(debounce_amount, base_input, action[1], debounce_busy))
     return action
@@ -427,10 +639,10 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
 
             if len(base_inputs) == 1:
                 inp0 = base_inputs[0]
-                if inp0.endswith("_stop"):
-                    base_pairs.add(inp0[:-5])
-                elif inp0.endswith("_up"):
-                    base_pairs.add(inp0[:-3])
+                for suffix in RELEASE_SUFFIXES:
+                    if inp0.endswith(suffix):
+                        base_pairs.add(inp0[:-len(suffix)])
+                        break
 
             if len(base_inputs) > 1:
                 unique_combos.add(base_combo)
@@ -449,10 +661,10 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
 
             if len(base_inputs) == 1:
                 inp0 = base_inputs[0]
-                if inp0.endswith("_stop"):
-                    base_pairs.add(inp0[:-5])
-                elif inp0.endswith("_up"):
-                    base_pairs.add(inp0[:-3])
+                for suffix in RELEASE_SUFFIXES:
+                    if inp0.endswith(suffix):
+                        base_pairs.add(inp0[:-len(suffix)])
+                        break
 
             if len(base_inputs) > 1:
                 unique_combos.add(base_combo)
