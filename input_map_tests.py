@@ -2844,14 +2844,14 @@ def test_parse_key():
 
     got = parse_key("pop:power>10:th", init_window_ms=500)
     assert got["base"] == "pop" and got["inputs"] == ["pop"], got
-    assert got["modifier"] is None and got["release"] == "", got
+    assert got["modifier"] is None and got["release_suffix"] == "", got
     assert got["segments"][0] == {"id": "condition", "text": "power>10",
                                   "value": ["power", ">", 10.0]}, got["segments"][0]
     assert got["segments"][1] == {"id": "th", "text": "th", "value": None, "ms": 100}, got["segments"][1]
     print("  ✓ condition and bare throttle")
 
     got = parse_key("left_up:dur<300")
-    assert got["release"] == "_up" and got["released"] == "left", got
+    assert got["release_suffix"] == "_up" and got["release_of"] == "left", got
     assert got["segments"][0]["value"] == ["dur", "<", 300.0], got
     print("  ✓ _up is a release key, dur a condition")
 
@@ -2869,8 +2869,8 @@ def test_parse_key():
     print("  ✓ modifier side parsed on its own")
 
     got = parse_key("hiss_stop")
-    assert got["release"] == "_stop" and got["released"] == "hiss", got
-    assert parse_key("hiss_stop hiss")["release"] == "", "a combo is not a release key"
+    assert got["release_suffix"] == "_stop" and got["release_of"] == "hiss", got
+    assert parse_key("hiss_stop hiss")["release_suffix"] == "", "a combo is not a release key"
     print("  ✓ _stop, and not on a combo")
 
     print()

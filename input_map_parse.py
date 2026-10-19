@@ -350,17 +350,17 @@ def _parse_side(text: str, init_window_ms: int = None) -> dict:
     base, *segments = text.split(":")
     base = base.strip()
     inputs = base.split()
-    release, released = "", ""
+    release_suffix, release_of = "", ""
     if len(inputs) == 1:
         for suffix in RELEASE_SUFFIXES:
             if inputs[0].endswith(suffix):
-                release, released = suffix, inputs[0][:-len(suffix)]
+                release_suffix, release_of = suffix, inputs[0][:-len(suffix)]
                 break
     return {
         "base": base,
         "inputs": inputs,
-        "release": release,
-        "released": released,
+        "release_suffix": release_suffix,
+        "release_of": release_of,
         "variables": extract_variables(base),
         "segments": [parse_segment(s.strip(), init_window_ms) for s in segments],
     }
@@ -369,12 +369,12 @@ def parse_key(key: str, init_window_ms: int = None) -> dict:
     """What an input map key says, in parts.
 
     'pedal_left + pop pop:power>10:th_90' ->
-        base "pop pop", inputs ["pop", "pop"], release "", released "",
+        base "pop pop", inputs ["pop", "pop"], release_suffix "", release_of "",
         variables [], segments [condition, th],
         modifier {the same, for "pedal_left"}
 
-    release is the suffix that makes it a release key ('_stop', '_up'),
-    released the input it releases. A bare init's ms is init_window_ms,
+    release_suffix is the end that makes it a release key ('_stop', '_up'),
+    release_of the input it releases. A bare init's ms is init_window_ms,
     else the window last set."""
     modifier = None
     if has_modifier(key):

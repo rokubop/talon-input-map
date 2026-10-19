@@ -285,7 +285,7 @@ class Actions:
         ```py
         actions.user.input_map_key_parse("pop:power>10:th")
         # {"key": "pop:power>10:th", "base": "pop", "inputs": ["pop"],
-        #  "release": "", "released": "", "variables": [], "modifier": None,
+        #  "release_suffix": "", "release_of": "", "variables": [], "modifier": None,
         #  "segments": [
         #      {"id": "condition", "text": "power>10", "value": ["power", ">", 10.0]},
         #      {"id": "th", "text": "th", "value": None, "ms": 100}]}
@@ -305,7 +305,7 @@ class Actions:
         """
         Send an event to input_map's listeners as if an input had fired,
         without running what it is bound to. For showing what a binding
-        does, as a UI preview of a game does.
+        does, for previews.
 
         Args:
             input: The input as events name it, e.g. "pop" or "hiss_stop"
@@ -327,7 +327,7 @@ class Actions:
                 mode = channel_mode_get(channel) if channel else input_map_mode_get()
             except ValueError:
                 mode = ""
-        event = InputMapEvent(type=event_type, mode=mode, input=input, label=label)
+        event = InputMapEvent(type=event_type, mode=mode or "", input=input, label=label)
         if channel:
             channel_event_trigger(channel, event)
         else:
