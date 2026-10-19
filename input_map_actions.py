@@ -277,9 +277,8 @@ class Actions:
 
     def input_map_key_parse(key: str) -> dict:
         """
-        What an input map key says, in parts: its inputs, whether it is a
-        release key, the 'a + b' modifier side, and each ':' segment read,
-        with a bare th, db or init given the ms it stands for.
+        Parse an input map key into its inputs, release suffix, 'a + b'
+        modifier and ':' segments.
 
         Example:
         ```py
@@ -290,8 +289,7 @@ class Actions:
         #      {"id": "condition", "text": "power>10", "value": ["power", ">", 10.0]},
         #      {"id": "th", "text": "th", "value": None, "ms": 100}]}
         ```
-        A segment's id is a value of Type: input_map.segment, or "" when
-        input_map doesn't know it.
+        A segment's id is a Type: input_map.segment, or "" if unknown.
         """
         return parse_key(key, settings.get("user.input_map_init_window"))
 
@@ -303,9 +301,8 @@ class Actions:
         event_type: str = "input",
     ):
         """
-        Send an event to input_map's listeners as if an input had fired,
-        without running what it is bound to. For showing what a binding
-        does, for previews.
+        Send listeners an event as if the input fired, without running its
+        binding. For previews.
 
         Args:
             input: The input as events name it, e.g. "pop" or "hiss_stop"

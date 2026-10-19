@@ -8,7 +8,7 @@ from talon import Module, actions, cron, settings
 
 EVENT_TYPES = {
     "input": "An input fired its binding.",
-    "mode_change": "The mode changed.",
+    "mode_change": "",
 }
 
 

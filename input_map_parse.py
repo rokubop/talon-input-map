@@ -5,65 +5,58 @@ This module handles setup-time processing (cold path).
 import re
 import inspect
 
-# The language of an input map key, described. The parser below reads its
-# patterns, names and defaults from these, and input_map_types() hands
-# them out, so this is the one place each is written.
+# Key syntax. The parser and input_map_types() both read these.
 
-# The ':' segments a key can carry. `pattern` matches the whole segment,
-# group 1 being its number when it takes one; a condition's groups are
-# variable, operator, number.
+# `pattern`: group 1 is the number; a condition's are variable, operator, number.
 SEGMENTS = {
     "th": {
-        "desc": "Fires at once, then ignores this input until this long has passed.",
+        "desc": "Fires, then ignores the input for this long.",
         "pattern": r"th(?:_(\d+))?",
         "unit": "ms",
         "default": 100,
     },
     "db": {
-        "desc": "Waits this long before firing, starting over each time the input comes again. On a stop: a start inside the wait cancels the stop and is skipped too, so a brief gap doesn't count as letting go. On a start whose stop is debounced too: a stop inside the wait cancels both.",
+        "desc": "Fires once the input has been quiet this long. A stop and start inside the wait cancel out.",
         "pattern": r"db(?:_(\d+))?",
         "unit": "ms",
         "default": 100,
     },
     "now": {
-        "desc": "Fires at once even when a combo starting with this input could still follow, and still tracks the combo. Without it the first input of a combo waits out the combo window.",
+        "desc": "Fires right away instead of waiting out the combo window. Combos still work.",
         "pattern": r"now",
     },
     "after": {
-        "desc": "Fires this long after the input, as well as the plain binding, unless a combo uses the input first. The input coming again starts the wait over. One per input, and it takes no conditions, throttle or debounce: those are dropped.",
+        "desc": "Also fires this long after the input, unless a combo uses it first. One per input; drops conditions, th and db.",
         "pattern": r"after_(\d+)",
         "unit": "ms",
     },
     "init": {
-        "desc": "Used in place of the plain binding for this long after the mode is entered. Pair it with a plain key; not with else.",
+        "desc": "Replaces the plain binding for this long after entering the mode. Needs a plain key; not with else.",
         "pattern": r"init(?:_(\d+))?",
         "unit": "ms",
         "default_setting": "user.input_map_init_window",
     },
     "condition": {
-        "desc": "Fires only while the variable compares true against the number. Several on one key all have to hold.",
+        "desc": "Fires only while true. Several must all hold.",
         # Filled in below, from CONDITION_VARIABLES and OPERATORS
         "pattern": "",
     },
     "else": {
-        "desc": "Fires when none of this input's conditions hold. Makes them edge-triggered: once per change of which one holds, not on every event.",
+        "desc": "Fires when none of the input's conditions hold. Conditions then fire once per change, not every event.",
         "pattern": r"else",
     },
 }
 
-# What a condition compares. `source` is which handle actions hand it over:
-# parrot, xy or value; `stop` is measured by input_map on a release key.
+# `source`: the handle action that provides it; `stop` is measured on a release key.
 CONDITION_VARIABLES = {
     "power": {"desc": "How loud the parrot noise is.", "source": "parrot"},
     "f0": {"desc": "The parrot noise's pitch.", "source": "parrot"},
     "f1": {"desc": "The parrot noise's first formant.", "source": "parrot"},
     "f2": {"desc": "The parrot noise's second formant.", "source": "parrot"},
-    "x": {"desc": "Horizontal position, as from gaze.", "source": "xy"},
-    "y": {"desc": "Vertical position, as from gaze.", "source": "xy"},
-    "value": {"desc": "A value the input carries, as how far a face expression is made.",
-              "source": "value"},
-    "dur": {"desc": "How long since the input started, in ms. Only on its release key.",
-            "source": "stop"},
+    "x": {"desc": "Horizontal position, e.g. gaze.", "source": "xy"},
+    "y": {"desc": "Vertical position, e.g. gaze.", "source": "xy"},
+    "value": {"desc": "The input's value, e.g. how far a face expression is made.", "source": "value"},
+    "dur": {"desc": "ms since the input started. Release keys only.", "source": "stop"},
 }
 
 OPERATORS = {
@@ -75,10 +68,9 @@ OPERATORS = {
     "!=": "not equal to",
 }
 
-# The end of an input's name that makes it the input letting go.
 RELEASE_SUFFIXES = {
-    "_stop": "When the input stops, e.g. hiss_stop.",
-    "_up": "When the input is let go, e.g. a pedal's left_up.",
+    "_stop": "e.g. hiss_stop",
+    "_up": "e.g. a pedal's left_up",
 }
 
 CONTEXT_KEYS = set(CONDITION_VARIABLES)
@@ -300,10 +292,9 @@ def get_base_input(input):
     return base_combo.strip(), base_inputs
 
 def parse_segment(segment: str, init_window_ms: int = None) -> dict:
-    """One ':' segment, read the way SEGMENTS says.
-    'th_90' -> {"id": "th", "text": "th_90", "value": 90, "ms": 90}
+    """'th_90' -> {"id": "th", "text": "th_90", "value": 90, "ms": 90}
     'th' -> value None, ms the default. 'power>10' -> value ["power", ">", 10.0].
-    A segment it doesn't know has id ""."""
+    Unknown -> id ""."""
     out = {"id": "", "text": segment, "value": None}
     for seg_id, seg in SEGMENTS.items():
         match = re.fullmatch(seg["pattern"], segment)
