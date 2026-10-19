@@ -106,12 +106,6 @@ RELEASE_SUFFIXES = {
     "_up": "When the input is let go, e.g. a pedal's left_up.",
 }
 
-# What an InputMapEvent is about: its `type`.
-EVENT_TYPES = {
-    "input": "An input fired its binding.",
-    "mode_change": "The mode changed.",
-}
-
 CONTEXT_KEYS = set(CONDITION_VARIABLES)
 # Longest first, so '>=' is not read as '>'
 _OPS = "|".join(re.escape(op) for op in sorted(OPERATORS, key=len, reverse=True))
@@ -329,42 +323,6 @@ def get_base_input(input):
     base_combo = input.split(':')[0]
     base_inputs = base_combo.split(' ')
     return base_combo.strip(), base_inputs
-
-def _values(table: dict) -> list:
-    out = []
-    for name, v in table.items():
-        out.append({"id": name, **v} if isinstance(v, dict) else {"id": name, "desc": v})
-    return out
-
-def types() -> dict:
-    """The sets above as user.input_map_types() hands them out:
-    {name: {"desc": str, "values": [{"id": str, "desc": str, ...}]}}"""
-    return {
-        "segment": {
-            "desc": "A ':' segment on an input map key, as in 'pop:power>10:th_90'. "
-                    "pattern matches the whole segment, its group 1 being the number "
-                    "when it takes one. A bare one with a default stands for it; "
-                    "default_setting names the setting that holds it instead.",
-            "values": _values(SEGMENTS),
-        },
-        "condition_variable": {
-            "desc": "What a condition compares. Each is only there when the input comes "
-                    "in through an action that hands it over: source is which.",
-            "values": _values(CONDITION_VARIABLES),
-        },
-        "operator": {
-            "desc": "How a condition compares its variable with its number.",
-            "values": _values(OPERATORS),
-        },
-        "release_suffix": {
-            "desc": "The end of an input's name that makes its key the input letting go.",
-            "values": _values(RELEASE_SUFFIXES),
-        },
-        "event_type": {
-            "desc": "What an input_map event is about.",
-            "values": _values(EVENT_TYPES),
-        },
-    }
 
 def parse_segment(segment: str, init_window_ms: int = None) -> dict:
     """One ':' segment, read the way SEGMENTS says.

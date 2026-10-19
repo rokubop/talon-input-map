@@ -2877,7 +2877,7 @@ def test_parse_key():
 
 def test_types_match_parser():
     print("Testing input_map_types against the parser...")
-    from .input_map_parse import types
+    from .input_map_types import types
     got = types()
     ids = {name: [v["id"] for v in s["values"]] for name, s in got.items()}
     assert set(ids["condition_variable"]) == CONTEXT_KEYS, ids["condition_variable"]

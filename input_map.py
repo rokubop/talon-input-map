@@ -6,10 +6,16 @@ from dataclasses import dataclass
 from talon import Module, actions, cron, settings
 
 
+EVENT_TYPES = {
+    "input": "An input fired its binding.",
+    "mode_change": "The mode changed.",
+}
+
+
 @dataclass(slots=True)
 class InputMapEvent:
     """Event fired when an input map action is triggered or mode changes."""
-    type: str        # one of input_map_parse.EVENT_TYPES
+    type: str        # one of EVENT_TYPES
     mode: str        # current mode name
     input: str = ""  # input key (e.g. "pop", "hiss")
     label: str = ""  # action label (e.g. "jump", "stop")

@@ -11,6 +11,7 @@ from .input_map import (
     input_map_get,
     input_map_reset,
     InputMapEvent,
+    EVENT_TYPES,
 )
 from .input_map_channel import (
     channel_register,
@@ -35,7 +36,7 @@ from .input_map_single import (
     single_mode_revert,
     single_get_legend,
 )
-from .input_map_parse import build_legend, parse_key, EVENT_TYPES
+from .input_map_parse import build_legend, parse_key
 from .input_map_tests import run_tests
 
 mod = Module()
