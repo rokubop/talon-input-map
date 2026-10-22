@@ -2469,9 +2469,9 @@ def test_legend_hud_shapes():
         ("negative and fractional values",
          ["gaze:x<-0.5", "gaze:x>0.5", "gaze:else"],
          ["gaze < -0.5", "gaze > 0.5", "gaze else"]),
-        ("now hidden, after shown",
-         ["pop:now", "pop pop", "pop:after_100"],
-         ["pop", "pop pop", "pop after 100"]),
+        ("now hidden",
+         ["pop:now", "pop pop"],
+         ["pop", "pop pop"]),
         ("compose condition with throttle",
          ["pop:power>10:th_100", "pop"],
          ["pop > 10", "pop"]),
@@ -2606,10 +2606,10 @@ def test_parse_key():
 
     got = parse_key("pop:init", init_window_ms=500)
     assert got["segments"][0]["ms"] == 500, got
-    got = parse_key("pop:init_150:after_200:now:else:huh")
-    assert [s["id"] for s in got["segments"]] == ["init", "after", "now", "else", ""], got
-    assert got["segments"][0]["ms"] == 150 and got["segments"][1]["ms"] == 200, got
-    print("  ✓ init window, after, flags, unknown segment")
+    got = parse_key("pop:init_150:now:else:huh")
+    assert [s["id"] for s in got["segments"]] == ["init", "now", "else", ""], got
+    assert got["segments"][0]["ms"] == 150, got
+    print("  ✓ init window, flags, unknown segment")
 
     got = parse_key("gaze:x<500 + pop pop:th_90")
     assert got["inputs"] == ["pop", "pop"] and got["segments"][0]["ms"] == 90, got
