@@ -143,8 +143,7 @@ class Actions:
         "input input"   - combo results in action
         "input:th_100"  - throttle of 100ms (triggered once every 100ms)
         "input:th"      - default throttle
-        "input:db_100"  - debounce of 100ms (triggered after 100ms of continuous input)
-        "input:db"      - default debounce
+        "input_stop:db_100" - debounce a stop by 100ms (a start inside the wait cancels it)
         "tut $input"    - variable pattern passed to lambda as argument
         "input:power>10"        - conditional on power value
         "input:x<500:y<500"     - multiple conditions (AND)

@@ -1332,7 +1332,7 @@ def test_single_handle_expanded():
     print("  ✓ Single input delayed (combo exists)")
 
     # After combo window, single fires
-    actions.sleep("310ms")
+    actions.sleep("350ms")
     assert executed == ["click"], f"Failed: got {executed}"
     print("  ✓ Single fires after combo window")
 

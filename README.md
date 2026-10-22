@@ -14,7 +14,6 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - variable inputs
 - greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, `value`, or `dur`
 - tap vs hold, via `dur`
-- delayed follow-up actions
 - bindings scoped to the moment a mode is entered
 - cross-input modifiers
 
@@ -40,7 +39,6 @@ git clone https://github.com/rokubop/talon-input-map/
 "pop":                ("click",   lambda: actions.mouse_click(0))        # basic
 "pop cluck":          ("combo",   lambda: actions.mouse_click(2))        # combo
 "pop:now":            ("start",   lambda: actions.user.start())          # combo prefix, fire now too
-"pop:after_100":      ("hop",     lambda: actions.user.hop())            # 100ms later, unless a combo wins
 "hiss:th_90":         ("scroll",  lambda: actions.user.scroll_down())    # throttle 90ms
 "hiss_stop:db_100":   ("stop",    lambda: None)                          # debounce 100ms
 "tut $noise":         ("reverse", lambda noise: reverse(noise))          # variable
@@ -48,12 +46,13 @@ git clone https://github.com/rokubop/talon-input-map/
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
 "left_up:dur<300":    ("tap",     lambda: actions.user.tap())            # held under 300ms
 "left_up:dur>=300":   ("hold",    lambda: actions.user.hold())           # held 300ms or more
+"hiss:dur>=500":      ("charge",  lambda: actions.user.charge())         # fires while held, at 500ms
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
 "hiss:init":          ("redirect",lambda: actions.user.other_mode())     # first 300ms of a mode
 "pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
 ```
 
-[Modes](#modes) | [Single](#single) | [Options](#options) | [Now](#now) | [After](#after) | [Init window](#init-window) | [Duration](#condition-duration) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Settings](#settings) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
+[Modes](#modes) | [Single](#single) | [Options](#options) | [Now](#now) | [Init window](#init-window) | [Duration](#condition-duration) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Settings](#settings) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
 
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
@@ -177,14 +176,6 @@ Combo window is `user.input_map_combo_window` (300ms default).
 ```
 When you add a combo like `pop pop` or `pop cluck`, the first noise (`pop`) becomes a 300ms deferred action (waiting for the next input to see if it forms a combo). Use `:now` to fire it immediately and still track the combo.
 
-**After**
-```py
-"pop:now":       ("jump start", lambda: actions.user.jump_start()),
-"pop:after_100": ("short hop",  lambda: actions.user.short_hop()),
-"pop pop":       ("full jump",  lambda: actions.user.full_jump()),
-```
-`:after_100` fires 100ms after the input. Cancelled if a combo consumes that input, so single pop is a short hop and double pop is a full jump. Repeating the input reschedules it. Pairs with `:now` for "act instantly, commit later unless something else arrives".
-
 **Throttle / Debounce**
 ```talon
 parrot(hiss):      user.input_map_handle("hiss")
@@ -194,7 +185,7 @@ parrot(hiss:stop): user.input_map_handle("hiss_stop")
 "hiss:th_90":       ("scroll", lambda: actions.user.scroll_down()),  # at most once per 90ms
 "hiss_stop:db_100": ("stop",   lambda: None),                       # wait 100ms before stopping
 ```
-Use `":th"` or `":db"` for defaults.
+Use `":th"` or `":db"` for defaults. Throttle goes on starts and covers every key of that sound. Debounce goes on stops: a start inside the wait cancels the stop, bridging gaps in a held noise.
 
 **Init window**
 ```py
@@ -209,6 +200,8 @@ Writing `hiss:init` is the same as writing `hiss:init_300` (user setting).
 
 Cannot be combined with `":else"`.
 Pair `":init"` with a plain unconditioned key, as above.
+
+A stop follows the start that fired. After `hiss:init`, the release fires `hiss_stop:init`, even once the window has closed, and never plain `hiss_stop`.
 
 **Variable pattern**
 ```talon
@@ -227,6 +220,8 @@ parrot(pop): user.input_map_handle_parrot("pop", power, f0, f1, f2)
 "pop:else":     ("soft click", lambda: actions.mouse_click(0)),
 ```
 Requires `input_map_handle_parrot` to access `power`, `f0`, `f1`, `f2`. Operators: `>`, `<`, `>=`, `<=`, `==`, `!=`.
+
+`else` fires on every pop the conditions don't catch. A plain `"pop"` does the same, so use one or the other.
 
 **Condition (gaze)**
 ```talon
@@ -258,7 +253,16 @@ parrot(hiss:stop): user.input_map_handle("hiss_stop")
 "hiss_stop:dur<300":  ("brief",     lambda: actions.user.tap()),
 "hiss_stop:dur>=300": ("sustained", lambda: actions.user.hold()),
 ```
-`dur` must be used on a `_stop` or `_up` key, and signifies the duration between the respective start and stop.
+On a `_stop` or `_up` key, `dur` is how long the input was held.
+
+On a start, `dur` takes only `>=` or `>`, and fires while the input is held:
+```py
+"hiss":           ("move",   lambda: actions.user.move()),     # on press
+"hiss:dur>=300":  ("charge", lambda: actions.user.charge()),   # still held at 300ms
+"hiss:dur>=1000": ("burst",  lambda: actions.user.burst()),    # still held at 1000ms
+"hiss_stop":      ("stop",   lambda: actions.user.stop()),
+```
+Released early, nothing from the stages fires. A stop only fires if a start did.
 
 **Bool (noise start/stop)**
 ```py
@@ -309,7 +313,9 @@ Conditions, throttle, and debounce can be combined:
 ```py
 "pop:power>10:th_100": ("throttled loud click", lambda: actions.user.strong_click()),
 ```
-`:after_` is the exception - it keys off the base input only, so conditions and throttle on the same key are ignored.
+Segments go on single inputs, not combos or variable keys. A combo uses the throttle of its sounds.
+
+A key that can't work prints why and what to write instead, and is skipped. The rest of the map still loads.
 
 **Settings**
 ```talon
