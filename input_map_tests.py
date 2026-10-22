@@ -2636,6 +2636,8 @@ def test_types_match_parser():
                            ("init", "init"), ("f0>=2", "condition"), ("else", "else")):
         assert parse_segment(sample)["id"] == seg_id, (sample, parse_segment(sample))
     assert all(s["desc"] for s in got.values()), "every set is described"
+    titles = {v["id"]: v.get("title") for v in got["segment"]["values"] + got["condition_variable"]["values"]}
+    assert titles["th"] == "throttle" and titles["db"] == "debounce" and titles["dur"] == "duration", titles
     print("  ✓ sets come from the parser's tables")
 
     print()

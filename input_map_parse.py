@@ -8,14 +8,17 @@ import inspect
 # Key syntax. The parser and input_map_types() both read these.
 
 # `pattern`: group 1 is the number; a condition's are variable, operator, number.
+# `title`: a name to show, where the id is short for something.
 SEGMENTS = {
     "th": {
+        "title": "throttle",
         "desc": "Input can only fire once per throttle time. Useful for continuous noises that want to act as discrete noises.",
         "pattern": r"th(?:_(\d+))?",
         "unit": "ms",
         "default": 100,
     },
     "db": {
+        "title": "debounce",
         "desc": "Wait this amount of time before triggering. Useful for stops on a continuous noise, to prevent start/stop cycle repeatedly triggering.",
         "pattern": r"db(?:_(\d+))?",
         "unit": "ms",
@@ -45,13 +48,13 @@ SEGMENTS = {
 # `source`: the handle action that provides it; `stop` is measured on a release key.
 CONDITION_VARIABLES = {
     "power": {"desc": "How loud the parrot noise is.", "source": "parrot"},
-    "f0": {"desc": "The parrot noise's pitch.", "source": "parrot", "experimental": True},
-    "f1": {"desc": "The parrot noise's first formant.", "source": "parrot", "experimental": True},
-    "f2": {"desc": "The parrot noise's second formant.", "source": "parrot", "experimental": True},
+    "f0": {"title": "pitch", "desc": "The parrot noise's pitch.", "source": "parrot", "experimental": True},
+    "f1": {"title": "formant 1", "desc": "The parrot noise's first formant.", "source": "parrot", "experimental": True},
+    "f2": {"title": "formant 2", "desc": "The parrot noise's second formant.", "source": "parrot", "experimental": True},
     "x": {"desc": "Horizontal position, e.g. gaze.", "source": "xy"},
     "y": {"desc": "Vertical position, e.g. gaze.", "source": "xy"},
     "value": {"desc": "The input's value, e.g. how far a face expression is made.", "source": "value"},
-    "dur": {"desc": "Fire based on how long the input was held. On a start, fire only after this amount of time has passed, otherwise it is ignored. Useful for continuous noises on start, or defining different behaviors on stop depending on how long it was held.", "source": "stop"},
+    "dur": {"title": "duration", "desc": "Fire based on how long the input was held. On a start, fire only after this amount of time has passed, otherwise it is ignored. Useful for continuous noises on start, or defining different behaviors on stop depending on how long it was held.", "source": "stop"},
 }
 
 OPERATORS = {
