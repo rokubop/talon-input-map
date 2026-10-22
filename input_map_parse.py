@@ -346,6 +346,30 @@ def parse_key(key: str, init_window_ms: int = None) -> dict:
     out = _parse_side(key_raw, init_window_ms)
     out["key"] = key
     out["modifier"] = modifier
+    # Modifiers are experimental; their checks run when the map loads
+    out["error"] = "" if modifier else _key_reason(out, _side_info(out))
+    return out
+
+def key_options(key: str) -> dict:
+    """What can still go on a key, by the same checks a map loads with:
+    {"segments": [id], "conditions": {variable: {"operators": [op], "whole": bool}}}.
+    Empty for a key that can't take more: a combo, a variable key, a modifier,
+    or a key that is already bad. Rules across keys (else needs a condition,
+    one throttle per sound) are input_map_check's."""
+    out = {"segments": [], "conditions": {}}
+    if has_modifier(key) or parse_key(key)["error"]:
+        return out
+
+    def ok(candidate):
+        side = _parse_side(candidate)
+        return not _key_reason(side, _side_info(side), ranges=False)
+
+    for var in CONDITION_VARIABLES:
+        operators = [op for op in OPERATORS if ok(f"{key}:{var}{op}1")]
+        if operators:
+            out["conditions"][var] = {"operators": operators, "whole": var in WHOLE_VARIABLES}
+    out["segments"] = [seg_id for seg_id in SEGMENTS
+                       if (bool(out["conditions"]) if seg_id == "condition" else ok(f"{key}:{seg_id}"))]
     return out
 
 def get_modified_action(input, action, throttle_busy, debounce_busy):
@@ -535,8 +559,9 @@ def _range_is_empty(conditions: list) -> bool:
         bounds[var] = (lo, lo_inc, hi, hi_inc)
     return any(lo > hi or (lo == hi and not (lo_inc and hi_inc)) for lo, lo_inc, hi, hi_inc in bounds.values())
 
-def _key_reason(side: dict, info: dict) -> str:
-    """Why one key can't work on its own, or ''."""
+def _key_reason(side: dict, info: dict, ranges: bool = True) -> str:
+    """Why one key can't work on its own, or ''. ranges=False skips the check
+    that a variable's conditions can all hold, which depends on the numbers."""
     base = side["base"]
     segments = side["segments"]
     release = side["release_of"]
@@ -580,7 +605,7 @@ def _key_reason(side: dict, info: dict) -> str:
             if var == "dur" and not release and op not in (">", ">="):
                 return (f"On a start, dur takes only a lower bound: '{base}:dur>=N' fires once held N ms. "
                         f"For a short press, put it on the stop: '{base}_stop:{text}'.")
-    if _range_is_empty(info["conditions"]):
+    if ranges and _range_is_empty(info["conditions"]):
         return "These conditions can never all hold."
     return ""
 
@@ -595,14 +620,14 @@ def _dur_lower_bound(conditions: list):
     lows = [n for var, op, n in conditions if var == "dur" and op in (">", ">=")]
     return max(lows) if lows else None
 
-def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
-    """The keys of a map that can work, in order. Each one that can't is
-    printed with the reason and left out; the rest still load.
+def check_commands(commands: dict, init_window_ms: int = None):
+    """(the keys of a map that can work, in order; {key: why it can't} for the rest).
 
     A later key replaces an earlier one for the same input and conditions,
     as a spread override does ('{**base, "sh:th_100": ...}' over 'sh:th_90').
     Throttle belongs to the sound: the value on one key goes on all its keys."""
     parsed = {}
+    reasons = {}
     for key, action in commands.items():
         if not key or not isinstance(action, tuple) or len(action) < 2:
             parsed[key] = None
@@ -612,9 +637,9 @@ def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
             continue
         side = parse_key(key, init_window_ms)
         info = _side_info(side)
-        reason = _key_reason(side, info)
+        reason = side["error"]
         if reason:
-            _report(key, reason)
+            reasons[key] = reason
             continue
         identity = (side["base"], frozenset(info["conditions"]), info["init"], info["else"])
         parsed[key] = (side, info, identity)
@@ -631,7 +656,6 @@ def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
         if parsed[key]:
             groups.setdefault(parsed[key][0]["base"], []).append(key)
 
-    bad = set()
     throttles = {}
     for base, group in groups.items():
         info = {k: parsed[k][1] for k in group}
@@ -641,37 +665,31 @@ def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
         plains = [k for k in group if not info[k]["conditions"] and info[k]["init"] is None and not info[k]["else"]]
         for k in elses:
             if inits:
-                bad.add(k)
-                _report(k, "':init' can't be combined with ':else' on one input. Pair ':init' with a plain key instead.")
+                reasons[k] = "':init' can't be combined with ':else' on one input. Pair ':init' with a plain key instead."
             elif not [c for c in group if info[c]["conditions"]]:
-                bad.add(k)
-                _report(k, f"':else' needs a condition on the same input, like '{base}:power>10'.")
+                reasons[k] = f"':else' needs a condition on the same input, like '{base}:power>10'."
             elif info[k]["th"] is not None and conditioned:
-                bad.add(k)
-                _report(k, f"Put the throttle on a conditioned key, '{conditioned[0]}:th_{info[k]['th']}'. "
-                           f"It covers the else too.")
+                reasons[k] = (f"Put the throttle on a conditioned key, '{conditioned[0]}:th_{info[k]['th']}'. "
+                              f"It covers the else too.")
         # A plain key is the fallback for conditioned keys; else is another
         for k in plains:
-            if elses and k not in bad:
-                bad.add(k)
-                _report(k, f"'{base}' and '{elses[0]}' are both fallbacks, so only one could fire. Keep one.")
+            if elses and k not in reasons:
+                reasons[k] = f"'{base}' and '{elses[0]}' are both fallbacks, so only one could fire. Keep one."
         if conditioned:
             kinds = [_kind(info[k]["conditions"]) for k in conditioned]
             for k, kind in zip(conditioned, kinds):
                 if kind != kinds[0]:
-                    bad.add(k)
-                    _report(k, "Parrot conditions (power, f0, f1, f2) and position conditions (x, y, value) can't share an input.")
+                    reasons[k] = "Parrot conditions (power, f0, f1, f2) and position conditions (x, y, value) can't share an input."
         first = None
         for k in group:
             ms = info[k]["th"]
-            if k in bad or ms is None:
+            if k in reasons or ms is None:
                 continue
             if first is None:
                 first = (k, ms)
             elif ms != first[1]:
-                bad.add(k)
-                _report(k, f"'{base}' already has a throttle of {first[1]}ms on '{first[0]}'. "
-                           f"A throttle belongs to the sound, so use one value.")
+                reasons[k] = (f"'{base}' already has a throttle of {first[1]}ms on '{first[0]}'. "
+                              f"A throttle belongs to the sound, so use one value.")
         if first:
             throttles[base] = first[1]
 
@@ -686,16 +704,15 @@ def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
             continue
         floor = min(lows)
         for k in group:
-            if k in bad:
+            if k in reasons:
                 continue
             conditions = [c for c in parsed[k][1]["conditions"] if c[0] == "dur"]
             if conditions and _range_is_empty(conditions + [("dur", ">=", floor)]):
-                bad.add(k)
-                _report(k, f"'{side['release_of']}' only starts once held {floor}ms, so this stop can never match.")
+                reasons[k] = f"'{side['release_of']}' only starts once held {floor}ms, so this stop can never match."
 
     out = {}
     for key in keys:
-        if key in bad:
+        if key in reasons:
             continue
         entry = parsed[key]
         if entry is None:
@@ -708,6 +725,14 @@ def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
             out[f"{key}:th_{ms}"] = commands[key]
         else:
             out[key] = commands[key]
+    return out, reasons
+
+def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
+    """The keys that can work. Each one that can't is printed with the reason;
+    the rest still load."""
+    out, reasons = check_commands(commands, init_window_ms)
+    for key, reason in reasons.items():
+        _report(key, reason)
     return out
 
 def _release_base(base_combo: str) -> str:

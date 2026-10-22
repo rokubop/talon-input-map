@@ -3543,6 +3543,68 @@ def test_key_channel_timers():
 
     print()
 
+# What consumers ask before writing a key
+
+def test_key_parse_error():
+    print("Testing key_parse says why a key can't work...")
+
+    assert parse_key("pop:th_90")["error"] == "", parse_key("pop:th_90")
+    assert "dur>=100" in parse_key("hiss:db_100")["error"], parse_key("hiss:db_100")
+    assert "removed" in parse_key("pop:after_200")["error"], parse_key("pop:after_200")
+    assert parse_key("pedal + pop")["error"] == "", parse_key("pedal + pop")
+    print("  ✓ Same reasons the loader prints; modifiers checked at load")
+
+    print()
+
+def test_key_options():
+    print("Testing key_options lists what can go on a key...")
+    from .input_map_parse import key_options
+
+    got = key_options("pop")
+    assert got["segments"] == ["th", "now", "init", "condition", "else"], got
+    assert got["conditions"]["power"] == {"operators": [">", "<", ">=", "<=", "==", "!="], "whole": True}, got
+    assert got["conditions"]["x"]["whole"] is False, got
+    print("  ✓ A start: th, now, init, conditions, else")
+
+    got = key_options("hiss_stop")
+    assert got["segments"] == ["db", "init", "condition", "else"], got
+    assert "power" not in got["conditions"] and "dur" in got["conditions"], got
+    print("  ✓ A stop: db, no th or now, no parrot conditions")
+
+    got = key_options("hiss")
+    assert got["conditions"]["dur"]["operators"] == [">", ">="], got
+    print("  ✓ dur on a start takes lower bounds only")
+
+    assert key_options("pop:th_90")["segments"] == ["now", "init", "condition", "else"], key_options("pop:th_90")
+    assert "else" not in key_options("pop:power>10")["segments"], key_options("pop:power>10")
+    assert "<" in key_options("pop:power>10")["conditions"]["power"]["operators"], key_options("pop:power>10")
+    print("  ✓ What the key already has narrows it; a range stays open")
+
+    for key in ("pop cluck", "tut $noise", "pedal + pop", "pop:foo"):
+        assert key_options(key) == {"segments": [], "conditions": {}}, (key, key_options(key))
+    print("  ✓ Nothing for combos, variable keys, modifiers, bad keys")
+
+    print()
+
+def test_key_check():
+    print("Testing input_map_check reports a whole map without loading it...")
+    from .input_map_parse import check_commands
+
+    noop = ("", lambda: None)
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        _, reasons = check_commands({
+            "pop": noop, "pop:power>10": noop, "pop:else": noop,
+            "hiss:db_100": noop,
+            "cluck": noop,
+        })
+    assert printed.getvalue() == "", printed.getvalue()
+    assert set(reasons) == {"pop", "hiss:db_100"}, reasons
+    assert "pop:else" in reasons["pop"], reasons
+    print("  ✓ Map rules and key rules, nothing printed")
+
+    print()
+
 def run_key_behavior_tests():
     """Run every key behavior test, reporting each failure without stopping. Returns the failures."""
     print("=" * 50)
@@ -3591,6 +3653,9 @@ def run_key_behavior_tests():
         test_key_conditioned_combo_prefix,
         test_key_mode_switch_timers,
         test_key_channel_timers,
+        test_key_parse_error,
+        test_key_options,
+        test_key_check,
     ]
     failed = []
     for test in tests:

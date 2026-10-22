@@ -36,7 +36,7 @@ from .input_map_single import (
     single_mode_revert,
     single_get_legend,
 )
-from .input_map_parse import build_legend, parse_key
+from .input_map_parse import build_legend, parse_key, key_options, check_commands, set_default_init_window
 from .input_map_tests import run_tests
 
 mod = Module()
@@ -286,11 +286,44 @@ class Actions:
         #  "release_suffix": "", "release_of": "", "variables": [], "modifier": None,
         #  "segments": [
         #      {"id": "condition", "text": "power>10", "value": ["power", ">", 10.0]},
-        #      {"id": "th", "text": "th", "value": None, "ms": 100}]}
+        #      {"id": "th", "text": "th", "value": None, "ms": 100}],
+        #  "error": ""}
         ```
         A segment's id is a Type: input_map.segment, or "" if unknown.
+        error is why the key can't work on its own, or "". Rules across
+        keys are input_map_check's.
         """
         return parse_key(key, settings.get("user.input_map_init_window"))
+
+    def input_map_key_options(key: str) -> dict:
+        """
+        What can still go on a key, by the checks a map loads with.
+
+        Example:
+        ```py
+        actions.user.input_map_key_options("hiss_stop")
+        # {"segments": ["db", "init", "condition", "else"],
+        #  "conditions": {"dur": {"operators": [">", "<", ">=", "<=", "==", "!="], "whole": True}, ...}}
+        ```
+        segments are Type: input_map.segment ids, conditions are keyed by
+        Type: input_map.condition_variable. Empty for a combo, a variable key,
+        a modifier, or a key that is already bad.
+        """
+        return key_options(key)
+
+    def input_map_check(input_map: dict) -> dict:
+        """
+        Every key in a map that can't work, and why, without loading it.
+        Takes one mode's map.
+
+        Example:
+        ```py
+        actions.user.input_map_check({"pop": ..., "pop:else": ..., "pop:power>10": ...})
+        # {"pop": "'pop' and 'pop:else' are both fallbacks, so only one could fire. Keep one."}
+        ```
+        """
+        set_default_init_window(settings.get("user.input_map_init_window"))
+        return check_commands(input_map)[1]
 
     def input_map_event_simulate(
         input: str = "",
