@@ -54,7 +54,7 @@ CONDITION_VARIABLES = {
     "x": {"desc": "Horizontal position, e.g. gaze.", "source": "xy"},
     "y": {"desc": "Vertical position, e.g. gaze.", "source": "xy"},
     "value": {"desc": "The input's value, e.g. how far a face expression is made.", "source": "value"},
-    "dur": {"title": "duration", "desc": "Fire based on how long the input was held. On a start, fire only after this amount of time has passed, otherwise it is ignored. Useful for continuous noises on start, or defining different behaviors on stop depending on how long it was held.", "source": "stop"},
+    "dur": {"title": "duration", "unit": "ms", "desc": "Fire based on how long the input was held. On a start, fire only after this amount of time has passed, otherwise it is ignored. Useful for continuous noises on start, or defining different behaviors on stop depending on how long it was held.", "source": "stop"},
 }
 
 OPERATORS = {
