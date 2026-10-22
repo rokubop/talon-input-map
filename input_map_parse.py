@@ -10,34 +10,34 @@ import inspect
 # `pattern`: group 1 is the number; a condition's are variable, operator, number.
 SEGMENTS = {
     "th": {
-        "desc": "Fires, then ignores the input for this long.",
+        "desc": "Input can only fire once per throttle time. Useful for continuous noises that want to act as discrete noises.",
         "pattern": r"th(?:_(\d+))?",
         "unit": "ms",
         "default": 100,
     },
     "db": {
-        "desc": "Stops only. Waits this long before stopping; a start inside the wait cancels the stop.",
+        "desc": "Wait this amount of time before triggering. Useful for stops on a continuous noise, to prevent start/stop cycle repeatedly triggering.",
         "pattern": r"db(?:_(\d+))?",
         "unit": "ms",
         "default": 100,
     },
     "now": {
-        "desc": "Fires right away instead of waiting out the combo window. Combos still work.",
+        "desc": "Fire immediately instead of waiting out the combo window (300ms by default). Only useful if you have a combo that also starts with this noise.",
         "pattern": r"now",
     },
     "init": {
-        "desc": "Replaces the plain binding for this long after entering the mode. Needs a plain key; not with else.",
+        "desc": "When changing to a new mode, fire this instead of the normal input if it falls within the init duration (300ms by default).",
         "pattern": r"init(?:_(\d+))?",
         "unit": "ms",
         "default_setting": "user.input_map_init_window",
     },
     "condition": {
-        "desc": "Fires only while true. Several must all hold.",
+        "desc": "Fire when the specific condition is met.",
         # Filled in below, from CONDITION_VARIABLES and OPERATORS
         "pattern": "",
     },
     "else": {
-        "desc": "Fires when none of the input's conditions hold. Conditions then fire once per change, not every event.",
+        "desc": "Used when you also have other conditions defined, such as power>10 or x<-0.5. Fires when the input is triggered but the other conditions are not met.",
         "pattern": r"else",
     },
 }
@@ -51,7 +51,7 @@ CONDITION_VARIABLES = {
     "x": {"desc": "Horizontal position, e.g. gaze.", "source": "xy"},
     "y": {"desc": "Vertical position, e.g. gaze.", "source": "xy"},
     "value": {"desc": "The input's value, e.g. how far a face expression is made.", "source": "value"},
-    "dur": {"desc": "ms since the input started. On a start, lower bounds only: fires once held that long.", "source": "stop"},
+    "dur": {"desc": "Fire based on how long the input was held. On a start, fire only after this amount of time has passed, otherwise it is ignored. Useful for continuous noises on start, or defining different behaviors on stop depending on how long it was held.", "source": "stop"},
 }
 
 OPERATORS = {
