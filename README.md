@@ -14,6 +14,7 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - variable inputs
 - greater than or less than for `power`, `f0`, `f1`, `f2`, `x`, `y`, `value`, or `dur`
 - tap vs hold, via `dur`
+- fire only once a sound has lasted a while, via `dur`
 - bindings scoped to the moment a mode is entered
 - cross-input modifiers
 
@@ -46,7 +47,7 @@ git clone https://github.com/rokubop/talon-input-map/
 "pop:else":           ("soft",    lambda: actions.mouse_click(0))        # fallback
 "left_up:dur<300":    ("tap",     lambda: actions.user.tap())            # held under 300ms
 "left_up:dur>=300":   ("hold",    lambda: actions.user.hold())           # held 300ms or more
-"hiss:dur>=500":      ("charge",  lambda: actions.user.charge())         # fires while held, at 500ms
+"hiss:dur>=200":      ("charge",  lambda: actions.user.charge())         # only once held 200ms
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
 "hiss:init":          ("redirect",lambda: actions.user.other_mode())     # first 300ms of a mode
 "pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
@@ -186,6 +187,8 @@ parrot(hiss:stop): user.input_map_handle("hiss_stop")
 "hiss_stop:db_100": ("stop",   lambda: None),                       # wait 100ms before stopping
 ```
 Use `":th"` or `":db"` for defaults. Throttle goes on starts and covers every key of that sound. Debounce goes on stops: a start inside the wait cancels the stop, bridging gaps in a held noise.
+
+To fire only once a sound has lasted a while, use `dur`: `"hiss:dur>=200"`. See [duration](#condition-duration).
 
 **Init window**
 ```py
