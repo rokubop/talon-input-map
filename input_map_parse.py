@@ -650,11 +650,12 @@ def validate_commands(commands: dict, init_window_ms: int = None) -> dict:
                 bad.add(k)
                 _report(k, f"Put the throttle on a conditioned key, '{conditioned[0]}:th_{info[k]['th']}'. "
                            f"It covers the else too.")
-        if conditioned:
-            for k in plains:
+        # A plain key is the fallback for conditioned keys; else is another
+        for k in plains:
+            if elses and k not in bad:
                 bad.add(k)
-                _report(k, f"A plain '{base}' next to conditioned keys is ambiguous. "
-                           f"Use '{base}:else' for everything the conditions don't catch.")
+                _report(k, f"'{base}' and '{elses[0]}' are both fallbacks, so only one could fire. Keep one.")
+        if conditioned:
             kinds = [_kind(info[k]["conditions"]) for k in conditioned]
             for k, kind in zip(conditioned, kinds):
                 if kind != kinds[0]:

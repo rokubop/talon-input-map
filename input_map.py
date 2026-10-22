@@ -96,17 +96,18 @@ class InputMap():
         else:
             input_map_event_trigger(event)
 
-    def _hold_start(self, base: str):
+    def _hold_start(self, base: str) -> bool:
         """A start of an input with 'dur>=N' stages. Starts while already held,
-        or inside a debounced stop's wait, are the same hold."""
+        or inside a debounced stop's wait, are the same hold. True when the
+        start only cancelled a pending stop, so nothing else should fire."""
         for suffix in RELEASE_SUFFIXES:
             job = self._debounce_busy.get(f"{base}{suffix}")
             if job:
                 cron.cancel(job)
                 self._debounce_busy[f"{base}{suffix}"] = False
-                return
+                return True
         if base in self._holds:
-            return
+            return False
         hold = {"fired": False, "jobs": []}
         self._holds[base] = hold
         if self.has_dur:
@@ -116,6 +117,7 @@ class InputMap():
             if conditions and not evaluate_conditions(conditions, self._context):
                 continue
             hold["jobs"].append(cron.after(f"{ms}ms", lambda action=action: self._hold_stage(base, hold, action)))
+        return False
 
     def _hold_stage(self, base: str, hold: dict, action: tuple):
         if self._holds.get(base) is not hold:
@@ -577,8 +579,13 @@ class InputMap():
 
         if self.hold_stages:
             if input_name in self.hold_stages:
-                self._hold_start(input_name)
-                return
+                if self._hold_start(input_name):
+                    return
+                # A plain key next to the stages fires on press, as a start that fired
+                if not (input_name in self.immediate_commands or input_name in self.delayed_commands
+                        or input_name in self.immediate_conditional or input_name in self.delayed_conditional):
+                    return
+                self._holds[input_name]["fired"] = True
             base = self._release_of.get(input_name)
             # A debounced stop ends the hold through _hold_gate, once its wait is over
             if base in self.hold_stages and base not in self._hold_stop_debounced:

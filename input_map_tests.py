@@ -710,7 +710,7 @@ def test_input_map_conditional_with_fallback():
     executed = []
     test_config = {
         "pop:power>10": ("loud pop", lambda: executed.append("loud")),
-        "pop:else": ("default pop", lambda: executed.append("default")),
+        "pop": ("default pop", lambda: executed.append("default")),
     }
 
     input_map = InputMap()
@@ -721,11 +721,11 @@ def test_input_map_conditional_with_fallback():
     assert executed == ["loud"], f"Failed: got {executed}"
     print("  ✓ conditional matches when condition is true")
 
-    # Low power should fall through to else
+    # Low power should fall through to default
     executed.clear()
     input_map.execute("pop", power=5.0)
     assert executed == ["default"], f"Failed: got {executed}"
-    print("  ✓ falls through to else")
+    print("  ✓ falls through to unconditional default")
 
     print()
 
@@ -735,16 +735,16 @@ def test_input_map_conditional_missing_context():
     executed = []
     test_config = {
         "pop:power>10": ("loud pop", lambda: executed.append("loud")),
-        "pop:else": ("default pop", lambda: executed.append("default")),
+        "pop": ("default pop", lambda: executed.append("default")),
     }
 
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # No power provided (None) should fall through to else
+    # No power provided (None) should fall through to default
     input_map.execute("pop")
     assert executed == ["default"], f"Failed: got {executed}"
-    print("  ✓ power=None falls through to else")
+    print("  ✓ power=None falls through to default")
 
     print()
 
@@ -3227,25 +3227,65 @@ def test_key_now_alone():
     print()
 
 def test_key_plain_with_conditions():
-    print("Testing a plain key next to conditioned keys is a bad key...")
+    print("Testing a plain key is the fallback for conditioned keys...")
 
     executed = []
     input_map, printed = _load({
         "pop": ("plain", lambda: executed.append("plain")),
         "pop:power>10": ("loud", lambda: executed.append("loud")),
     })
-    _assert_bad(printed, "pop", "pop:else")
-    input_map.execute("pop", power=20.0)
-    input_map.execute("pop", power=5.0)
-    assert executed == ["loud"], f"Failed: got {executed}"
-    print("  ✓ Error points to else; the plain key is skipped")
-
-    _, printed = _load({
-        "hiss": ("plain", lambda: None),
-        "hiss:init": ("init", lambda: None),
-    })
     _assert_clean(printed)
-    print("  ✓ init is exempt")
+    for power in (20.0, 20.0, 5.0, 5.0):
+        input_map.execute("pop", power=power)
+    assert executed == ["loud", "loud", "plain", "plain"], f"Failed: got {executed}"
+    print("  ✓ Conditions first, the plain key catches the rest, every event")
+
+    executed = []
+    base = {"pop": ("plain", lambda: executed.append("plain"))}
+    input_map, printed = _load({**base, "pop:power>10": ("loud", lambda: executed.append("loud"))})
+    _assert_clean(printed)
+    input_map.execute("pop", power=5.0)
+    assert executed == ["plain"], f"Failed: got {executed}"
+    print("  ✓ A spread mode can add conditions over an inherited plain key")
+
+    executed = []
+    input_map, printed = _load({
+        "pop": ("plain", lambda: executed.append("plain")),
+        "pop:power>10": ("loud", lambda: executed.append("loud")),
+        "pop:else": ("soft", lambda: executed.append("soft")),
+    })
+    _assert_bad(printed, "'pop'", "pop:else")
+    input_map.execute("pop", power=5.0)
+    assert executed == ["soft"], f"Failed: got {executed}"
+    print("  ✓ Plain and else together is a bad key on the plain one")
+
+    for config in (
+        {"hiss": ("plain", lambda: None), "hiss:init": ("init", lambda: None)},
+        {"hiss": ("press", lambda: None), "hiss:dur>=300": ("held", lambda: None)},
+        {"hiss": ("start", lambda: None), "hiss_stop": ("stop", lambda: None), "hiss_stop:dur<300": ("tap", lambda: None)},
+    ):
+        _, printed = _load(config)
+        _assert_clean(printed)
+    print("  ✓ The same holds for init and dur")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss": ("press", lambda: executed.append("press")),
+        "hiss:dur>=150": ("held", lambda: executed.append("held")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    })
+    input_map.execute("hiss")
+    assert executed == ["press"], f"Failed: got {executed}"
+    actions.sleep("250ms")
+    input_map.execute("hiss_stop")
+    assert executed == ["press", "held", "stop"], f"Failed: got {executed}"
+    executed.clear()
+    input_map.execute("hiss")
+    actions.sleep("50ms")
+    input_map.execute("hiss_stop")
+    actions.sleep("200ms")
+    assert executed == ["press", "stop"], f"Failed: got {executed}"
+    print("  ✓ Plain hiss fires on press, the stage once held, the stop after either")
 
     print()
 
