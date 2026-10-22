@@ -575,7 +575,7 @@ def _key_reason(side: dict, info: dict, ranges: bool = True) -> str:
             if _AFTER_PATTERN.fullmatch(text):
                 return (f"':after' was removed in 1.3.0. A plain '{base}' already waits out the combo window "
                         f"and fires only if no combo follows; use '{base}:now' to also fire right away.")
-            return f"Unknown modifier '{text}'. Valid: {_VALID_MODIFIERS}."
+            return f"Invalid modifier :{text}. Valid modifiers are {_VALID_MODIFIERS}."
         if sid != "condition" and sid in seen:
             return f"'{sid}' appears more than once."
         seen.add(sid)
