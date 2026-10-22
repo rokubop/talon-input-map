@@ -7,16 +7,16 @@ from .input_map_parse import (
     match_variable_pattern,
     has_variables,
     has_conditions,
-    has_modifier,
-    extract_modifier,
-    validate_modifier,
+    has_chord,
+    extract_chord,
+    validate_chord,
     validate_variable_action,
     parse_condition,
     extract_conditions,
     evaluate_conditions,
     build_legend,
     parse_key,
-    parse_segment,
+    parse_modifier,
     CONTEXT_KEYS,
 )
 from .input_map_channel import (
@@ -594,7 +594,7 @@ def test_parse_condition():
     assert result == ("power", ">", -5.0), f"Failed: got {result}"
     print("  ✓ negative threshold")
 
-    # Non-condition segments
+    # Non-condition modifiers
     result = parse_condition("th_100")
     assert result is None, f"Failed: got {result}"
     print("  ✓ th_100 returns None")
@@ -1665,64 +1665,64 @@ def test_handle_bool_single():
     _cleanup_single("test_bool_s_stop")
     print()
 
-def test_has_modifier():
-    print("Testing has_modifier...")
+def test_has_chord():
+    print("Testing has_chord...")
 
-    assert has_modifier("pedal_left + pop") == True
+    assert has_chord("pedal_left + pop") == True
     print("  ✓ 'pedal_left + pop' detected")
 
-    assert has_modifier("pop") == False
-    print("  ✓ 'pop' not a modifier")
+    assert has_chord("pop") == False
+    print("  ✓ 'pop' not a chord")
 
-    assert has_modifier("pop cluck") == False
-    print("  ✓ 'pop cluck' not a modifier")
+    assert has_chord("pop cluck") == False
+    print("  ✓ 'pop cluck' not a chord")
 
-    assert has_modifier("pedal_left + pop cluck") == True
+    assert has_chord("pedal_left + pop cluck") == True
     print("  ✓ 'pedal_left + pop cluck' detected")
 
     print()
 
-def test_extract_modifier():
-    print("Testing extract_modifier...")
+def test_extract_chord():
+    print("Testing extract_chord...")
 
-    mod, act = extract_modifier("pedal_left + pop")
+    mod, act = extract_chord("pedal_left + pop")
     assert mod == "pedal_left" and act == "pop", f"Failed: got {mod}, {act}"
-    print("  ✓ Simple modifier split")
+    print("  ✓ Simple chord split")
 
-    mod, act = extract_modifier("pedal_left + pop cluck")
+    mod, act = extract_chord("pedal_left + pop cluck")
     assert mod == "pedal_left" and act == "pop cluck", f"Failed: got {mod}, {act}"
-    print("  ✓ Modifier with combo activator")
+    print("  ✓ Chord with combo activator")
 
     print()
 
-def test_validate_modifier():
-    print("Testing validate_modifier...")
+def test_validate_chord():
+    print("Testing validate_chord...")
 
     # Valid: in base_pairs
     try:
-        validate_modifier("pedal_left", {"pedal_left"}, set())
-        print("  ✓ Valid modifier in base_pairs")
+        validate_chord("pedal_left", {"pedal_left"}, set())
+        print("  ✓ Valid chord in base_pairs")
     except ValueError:
-        assert False, "Should not raise for valid modifier"
+        assert False, "Should not raise for valid chord"
 
     # Valid: in edge_triggered_bases
     try:
-        validate_modifier("gaze", set(), {"gaze"})
-        print("  ✓ Valid modifier in edge_triggered_bases")
+        validate_chord("gaze", set(), {"gaze"})
+        print("  ✓ Valid chord in edge_triggered_bases")
     except ValueError:
-        assert False, "Should not raise for valid edge modifier"
+        assert False, "Should not raise for valid edge chord"
 
     # Invalid: not stateful
     try:
-        validate_modifier("pop", set(), set())
+        validate_chord("pop", set(), set())
         assert False, "Should have raised ValueError"
     except ValueError:
-        print("  ✓ Invalid modifier raises ValueError")
+        print("  ✓ Invalid chord raises ValueError")
 
     print()
 
-def test_modifier_held_basic():
-    print("Testing modifier held basic (start/stop)...")
+def test_chord_held_basic():
+    print("Testing chord held basic (start/stop)...")
 
     executed = []
     test_config = {
@@ -1738,14 +1738,14 @@ def test_modifier_held_basic():
     # Pop without pedal held → normal action
     input_map.execute("pop")
     assert executed == ["click"], f"Failed: got {executed}"
-    print("  ✓ Pop without modifier → normal")
+    print("  ✓ Pop without chord → normal")
 
-    # Hold pedal, then pop → modifier action
+    # Hold pedal, then pop → chord action
     executed.clear()
     input_map.execute("pedal_left")
     input_map.execute("pop")
     assert "mod_click" in executed, f"Failed: got {executed}"
-    print("  ✓ Pop while pedal held → modifier action")
+    print("  ✓ Pop while pedal held → chord action")
 
     # Release pedal, then pop → normal action
     executed.clear()
@@ -1756,8 +1756,8 @@ def test_modifier_held_basic():
 
     print()
 
-def test_modifier_edge_triggered():
-    print("Testing modifier with edge-triggered conditions...")
+def test_chord_edge_triggered():
+    print("Testing chord with edge-triggered conditions...")
 
     executed = []
     test_config = {
@@ -1776,25 +1776,25 @@ def test_modifier_edge_triggered():
     assert executed == ["click"], f"Failed: got {executed}"
     print("  ✓ Pop in neutral → normal")
 
-    # Enter left region, then pop → modifier
+    # Enter left region, then pop → chord
     executed.clear()
     input_map.execute("gaze", x=100.0)
     input_map.execute("pop")
     assert "gaze_click" in executed, f"Failed: got {executed}"
-    print("  ✓ Pop while gaze active → modifier action")
+    print("  ✓ Pop while gaze active → chord action")
 
     # Enter else region, then pop → normal
     executed.clear()
     input_map.execute("gaze", x=600.0)  # goes to right
     input_map.execute("pop")
-    # gaze is in right region (not else), so modifier is active
+    # gaze is in right region (not else), so chord is active
     assert "gaze_click" in executed, f"Failed: got {executed}"
-    print("  ✓ Pop while gaze in non-else region → modifier action")
+    print("  ✓ Pop while gaze in non-else region → chord action")
 
     print()
 
-def test_modifier_release_resets_held():
-    print("Testing modifier release resets held state...")
+def test_chord_release_resets_held():
+    print("Testing chord release resets held state...")
 
     executed = []
     test_config = {
@@ -1807,7 +1807,7 @@ def test_modifier_release_resets_held():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # Hold → pop (modifier) → release → pop (normal)
+    # Hold → pop (chord) → release → pop (normal)
     input_map.execute("pedal_left")
     input_map.execute("pop")
     assert "mod_click" in executed, f"Failed first: got {executed}"
@@ -1820,8 +1820,8 @@ def test_modifier_release_resets_held():
 
     print()
 
-def test_modifier_with_combo_activator():
-    print("Testing modifier with combo activator...")
+def test_chord_with_combo_activator():
+    print("Testing chord with combo activator...")
 
     executed = []
     test_config = {
@@ -1835,18 +1835,18 @@ def test_modifier_with_combo_activator():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # Hold pedal, then pop cluck → modifier combo
+    # Hold pedal, then pop cluck → chord combo
     input_map.execute("pedal_left")
     executed.clear()
     input_map.execute("pop")
     input_map.execute("cluck")
     assert "mod_combo" in executed, f"Failed: got {executed}"
-    print("  ✓ Modifier with combo activator works")
+    print("  ✓ Chord with combo activator works")
 
     print()
 
-def test_modifier_mode_switch_resets():
-    print("Testing modifier mode switch resets held state...")
+def test_chord_mode_switch_resets():
+    print("Testing chord mode switch resets held state...")
 
     executed = []
     test_config = {
@@ -1877,8 +1877,8 @@ def test_modifier_mode_switch_resets():
 
     print()
 
-def test_modifier_has_modifiers_false():
-    print("Testing has_modifiers=False when no + keys...")
+def test_chord_has_chords_false():
+    print("Testing has_chords=False when no + keys...")
 
     test_config = {
         "pop":  ("click",   lambda: None),
@@ -1888,14 +1888,14 @@ def test_modifier_has_modifiers_false():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    assert input_map.has_modifiers == False, f"Failed: has_modifiers should be False"
+    assert input_map.has_chords == False, f"Failed: has_chords should be False"
     assert input_map._held_inputs == {}, f"Failed: _held_inputs should be empty"
-    print("  ✓ has_modifiers=False, zero overhead path")
+    print("  ✓ has_chords=False, zero overhead path")
 
     print()
 
-def test_modifier_fallthrough():
-    print("Testing modifier fallthrough...")
+def test_chord_fallthrough():
+    print("Testing chord fallthrough...")
 
     executed = []
     test_config = {
@@ -1911,12 +1911,12 @@ def test_modifier_fallthrough():
     # Without holding pedal, pop should fall through to normal
     input_map.execute("pop")
     assert executed == ["click"], f"Failed: got {executed}"
-    print("  ✓ Modifier not active → falls through to normal dispatch")
+    print("  ✓ Chord not active → falls through to normal dispatch")
 
     print()
 
-def test_modifier_conditional():
-    print("Testing modifier with conditions on modifier side...")
+def test_chord_conditional():
+    print("Testing chord with conditions on held side...")
 
     executed = []
     test_config = {
@@ -1936,14 +1936,14 @@ def test_modifier_conditional():
     assert executed == ["click"], f"Failed: got {executed}"
     print("  ✓ Pop in neutral → normal click")
 
-    # Enter left region, then pop → left modifier
+    # Enter left region, then pop → left chord
     executed.clear()
     input_map.execute("gaze", x=100.0)
     input_map.execute("pop")
     assert "left_click" in executed, f"Failed: got {executed}"
     print("  ✓ Pop while gaze x<500 → left_click")
 
-    # Enter right region, then pop → right modifier
+    # Enter right region, then pop → right chord
     executed.clear()
     input_map.execute("gaze", x=600.0)
     input_map.execute("pop")
@@ -1959,8 +1959,8 @@ def test_modifier_conditional():
 
     print()
 
-def test_modifier_parse_validation_error():
-    print("Testing modifier parse validation error...")
+def test_chord_parse_validation_error():
+    print("Testing chord parse validation error...")
 
     executed = []
     test_config = {
@@ -1971,7 +1971,7 @@ def test_modifier_parse_validation_error():
 
     input_map, printed = _load(test_config)
     _assert_bad(printed, "pop + cluck", "not stateful")
-    print("  ✓ Non-stateful modifier prints an error")
+    print("  ✓ Non-stateful chord prints an error")
 
     input_map.execute("cluck")
     assert executed == ["cluck"], f"Failed: rest of the map should work, got {executed}"
@@ -2478,7 +2478,7 @@ def test_legend_hud_shapes():
         ("combos are their own base",
          ["pop", "pop pop", "tut pop"],
          ["pop", "pop pop", "tut pop"]),
-        ("cross-input modifier untouched",
+        ("cross-input chord untouched",
          ["pedal + pop", "pop"],
          ["pedal + pop", "pop"]),
         ("variable pattern untouched",
@@ -2556,8 +2556,8 @@ def test_legend_real_world_map_unchanged():
 
     print()
 
-def test_init_modifier_arms_clock():
-    print("Testing modifier-side ':init' arms the clock...")
+def test_init_chord_arms_clock():
+    print("Testing held-side ':init' arms the clock...")
 
     input_map = InputMap()
     input_map.setup({
@@ -2566,13 +2566,13 @@ def test_init_modifier_arms_clock():
         "pop": ("plain", lambda: None),
     })
     assert input_map.has_mode_age is True, \
-        "has_mode_age should be on for a modifier-side ':init'"
+        "has_mode_age should be on for a held-side ':init'"
     print("  ✓ 'pedal:init + pop' is not a dead binding")
 
     print()
 
-def test_init_modifier_edge_triggered_rejected():
-    print("Testing modifier-side ':init' rejects an edge-triggered base...")
+def test_init_chord_edge_triggered_rejected():
+    print("Testing held-side ':init' rejects an edge-triggered base...")
 
     executed = []
     input_map, printed = _load({
@@ -2593,29 +2593,29 @@ def test_parse_key():
 
     got = parse_key("pop:power>10:th", init_window_ms=500)
     assert got["base"] == "pop" and got["inputs"] == ["pop"], got
-    assert got["modifier"] is None and got["release_suffix"] == "", got
-    assert got["segments"][0] == {"id": "condition", "text": "power>10",
-                                  "value": ["power", ">", 10.0]}, got["segments"][0]
-    assert got["segments"][1] == {"id": "th", "text": "th", "value": None, "ms": 100}, got["segments"][1]
+    assert got["chord"] is None and got["release_suffix"] == "", got
+    assert got["modifiers"][0] == {"id": "condition", "text": "power>10",
+                                  "value": ["power", ">", 10.0]}, got["modifiers"][0]
+    assert got["modifiers"][1] == {"id": "th", "text": "th", "value": None, "ms": 100}, got["modifiers"][1]
     print("  ✓ condition and bare throttle")
 
     got = parse_key("left_up:dur<300")
     assert got["release_suffix"] == "_up" and got["release_of"] == "left", got
-    assert got["segments"][0]["value"] == ["dur", "<", 300.0], got
+    assert got["modifiers"][0]["value"] == ["dur", "<", 300.0], got
     print("  ✓ _up is a release key, dur a condition")
 
     got = parse_key("pop:init", init_window_ms=500)
-    assert got["segments"][0]["ms"] == 500, got
+    assert got["modifiers"][0]["ms"] == 500, got
     got = parse_key("pop:init_150:now:else:huh")
-    assert [s["id"] for s in got["segments"]] == ["init", "now", "else", ""], got
-    assert got["segments"][0]["ms"] == 150, got
-    print("  ✓ init window, flags, unknown segment")
+    assert [s["id"] for s in got["modifiers"]] == ["init", "now", "else", ""], got
+    assert got["modifiers"][0]["ms"] == 150, got
+    print("  ✓ init window, flags, unknown modifier")
 
     got = parse_key("gaze:x<500 + pop pop:th_90")
-    assert got["inputs"] == ["pop", "pop"] and got["segments"][0]["ms"] == 90, got
-    assert got["modifier"]["base"] == "gaze", got
-    assert got["modifier"]["segments"][0]["value"] == ["x", "<", 500.0], got
-    print("  ✓ modifier side parsed on its own")
+    assert got["inputs"] == ["pop", "pop"] and got["modifiers"][0]["ms"] == 90, got
+    assert got["chord"]["base"] == "gaze", got
+    assert got["chord"]["modifiers"][0]["value"] == ["x", "<", 500.0], got
+    print("  ✓ held side parsed on its own")
 
     got = parse_key("hiss_stop")
     assert got["release_suffix"] == "_stop" and got["release_of"] == "hiss", got
@@ -2630,13 +2630,13 @@ def test_types_match_parser():
     got = types()
     ids = {name: [v["id"] for v in s["values"]] for name, s in got.items()}
     assert set(ids["condition_variable"]) == CONTEXT_KEYS, ids["condition_variable"]
-    for seg in got["segment"]["values"]:
+    for seg in got["modifier"]["values"]:
         assert seg["desc"] and seg["pattern"], seg
     for sample, seg_id in (("th_5", "th"), ("db", "db"), ("now", "now"),
                            ("init", "init"), ("f0>=2", "condition"), ("else", "else")):
-        assert parse_segment(sample)["id"] == seg_id, (sample, parse_segment(sample))
+        assert parse_modifier(sample)["id"] == seg_id, (sample, parse_modifier(sample))
     assert all(s["desc"] for s in got.values()), "every set is described"
-    titles = {v["id"]: v.get("title") for v in got["segment"]["values"] + got["condition_variable"]["values"]}
+    titles = {v["id"]: v.get("title") for v in got["modifier"]["values"] + got["condition_variable"]["values"]}
     assert titles["th"] == "throttle" and titles["db"] == "debounce" and titles["dur"] == "duration", titles
     print("  ✓ sets come from the parser's tables")
 
@@ -2738,20 +2738,20 @@ def run_tests():
     test_handle_bool_channel()
     test_handle_bool_single()
 
-    # Cross-input modifier tests (unit)
-    test_has_modifier()
-    test_extract_modifier()
-    test_validate_modifier()
+    # Cross-input chord tests (unit)
+    test_has_chord()
+    test_extract_chord()
+    test_validate_chord()
 
-    # Cross-input modifier tests (integration)
-    test_modifier_held_basic()
-    test_modifier_edge_triggered()
-    test_modifier_release_resets_held()
-    test_modifier_with_combo_activator()
-    test_modifier_mode_switch_resets()
-    test_modifier_has_modifiers_false()
-    test_modifier_fallthrough()
-    test_modifier_conditional()
+    # Cross-input chord tests (integration)
+    test_chord_held_basic()
+    test_chord_edge_triggered()
+    test_chord_release_resets_held()
+    test_chord_with_combo_activator()
+    test_chord_mode_switch_resets()
+    test_chord_has_chords_false()
+    test_chord_fallthrough()
+    test_chord_conditional()
 
     # Edge debounce tests
     test_edge_debounce_delays_transition()
@@ -2780,7 +2780,7 @@ def run_tests():
     test_init_no_binding_no_clock()
     test_init_restamps_on_mode_change()
     test_init_same_mode_does_not_restamp()
-    test_init_modifier_arms_clock()
+    test_init_chord_arms_clock()
 
     # Key parsing and types
     test_parse_key()
@@ -2811,7 +2811,7 @@ def test_key_bad_key_skips_only_itself():
         "cluck:foo": ("bad", lambda: executed.append("cluck")),
     })
     _assert_bad(printed, "cluck:foo", "foo", "now")
-    print("  ✓ Error names the key, the unknown segment, and the valid ones")
+    print("  ✓ Error names the key, the unknown modifier, and the valid ones")
 
     input_map.execute("pop")
     input_map.execute("cluck")
@@ -2820,8 +2820,8 @@ def test_key_bad_key_skips_only_itself():
 
     print()
 
-def test_key_segment_order():
-    print("Testing segment order doesn't matter...")
+def test_key_modifier_order():
+    print("Testing modifier order doesn't matter...")
 
     for key in ("pop:th_200:power>10", "pop:power>10:th_200"):
         executed = []
@@ -2834,13 +2834,13 @@ def test_key_segment_order():
 
     a = parse_key("pop:th_200:power>10")
     b = parse_key("pop:power>10:th_200")
-    assert sorted(s["text"] for s in a["segments"]) == sorted(s["text"] for s in b["segments"]), (a, b)
-    print("  ✓ key_parse reads the same segments")
+    assert sorted(s["text"] for s in a["modifiers"]) == sorted(s["text"] for s in b["modifiers"]), (a, b)
+    print("  ✓ key_parse reads the same modifiers")
 
     print()
 
-def test_key_repeated_segment():
-    print("Testing the same segment twice is a bad key...")
+def test_key_repeated_modifier():
+    print("Testing the same modifier twice is a bad key...")
 
     _, printed = _load({"pop:th:th_90": ("x", lambda: None)})
     _assert_bad(printed, "pop:th:th_90")
@@ -3172,7 +3172,7 @@ def test_key_parrot_condition_on_release():
 
     print()
 
-# Each segment alone
+# Each modifier alone
 
 def test_key_throttle_zero():
     print("Testing th_0 is a bad key...")
@@ -3393,7 +3393,7 @@ def test_key_else_with_throttle():
     print()
 
 def test_key_experimental_flags():
-    print("Testing experimental segments are flagged in input_map_types...")
+    print("Testing experimental modifiers are flagged in input_map_types...")
     from .input_map_types import types
 
     variables = {v["id"]: v for v in types()["condition_variable"]["values"]}
@@ -3445,8 +3445,8 @@ def test_key_later_key_replaces():
 
 # Combos
 
-def test_key_segments_on_combos():
-    print("Testing segments on combos and variable keys are bad keys...")
+def test_key_modifiers_on_combos():
+    print("Testing modifiers on combos and variable keys are bad keys...")
 
     _, printed = _load({"pop cluck:th": ("x", lambda: None)})
     _assert_bad(printed, "pop cluck:th")
@@ -3554,7 +3554,7 @@ def test_key_parse_error():
     assert "dur>=100" in parse_key("hiss:db_100")["error"], parse_key("hiss:db_100")
     assert "removed" in parse_key("pop:after_200")["error"], parse_key("pop:after_200")
     assert parse_key("pedal + pop")["error"] == "", parse_key("pedal + pop")
-    print("  ✓ Same reasons the loader prints; modifiers checked at load")
+    print("  ✓ Same reasons the loader prints; chords checked at load")
 
     print()
 
@@ -3563,13 +3563,13 @@ def test_key_options():
     from .input_map_parse import key_options
 
     got = key_options("pop")
-    assert got["segments"] == ["th", "now", "init", "condition", "else"], got
+    assert got["modifiers"] == ["th", "now", "init", "condition", "else"], got
     assert got["conditions"]["power"] == {"operators": [">", "<", ">=", "<=", "==", "!="], "whole": True}, got
     assert got["conditions"]["x"]["whole"] is False, got
     print("  ✓ A start: th, now, init, conditions, else")
 
     got = key_options("hiss_stop")
-    assert got["segments"] == ["db", "init", "condition", "else"], got
+    assert got["modifiers"] == ["db", "init", "condition", "else"], got
     assert "power" not in got["conditions"] and "dur" in got["conditions"], got
     print("  ✓ A stop: db, no th or now, no parrot conditions")
 
@@ -3577,14 +3577,14 @@ def test_key_options():
     assert got["conditions"]["dur"]["operators"] == [">", ">="], got
     print("  ✓ dur on a start takes lower bounds only")
 
-    assert key_options("pop:th_90")["segments"] == ["now", "init", "condition", "else"], key_options("pop:th_90")
-    assert "else" not in key_options("pop:power>10")["segments"], key_options("pop:power>10")
+    assert key_options("pop:th_90")["modifiers"] == ["now", "init", "condition", "else"], key_options("pop:th_90")
+    assert "else" not in key_options("pop:power>10")["modifiers"], key_options("pop:power>10")
     assert "<" in key_options("pop:power>10")["conditions"]["power"]["operators"], key_options("pop:power>10")
     print("  ✓ What the key already has narrows it; a range stays open")
 
     for key in ("pop cluck", "tut $noise", "pedal + pop", "pop:foo"):
-        assert key_options(key) == {"segments": [], "conditions": {}}, (key, key_options(key))
-    print("  ✓ Nothing for combos, variable keys, modifiers, bad keys")
+        assert key_options(key) == {"modifiers": [], "conditions": {}}, (key, key_options(key))
+    print("  ✓ Nothing for combos, variable keys, chords, bad keys")
 
     print()
 
@@ -3616,11 +3616,11 @@ def run_key_behavior_tests():
 
     tests = [
         test_key_bad_key_skips_only_itself,
-        test_modifier_parse_validation_error,
+        test_chord_parse_validation_error,
         test_init_rejects_else,
-        test_init_modifier_edge_triggered_rejected,
-        test_key_segment_order,
-        test_key_repeated_segment,
+        test_init_chord_edge_triggered_rejected,
+        test_key_modifier_order,
+        test_key_repeated_modifier,
         test_key_condition_range,
         test_key_release_suffixes_reserved,
         test_key_release_only_mapped,
@@ -3651,7 +3651,7 @@ def run_key_behavior_tests():
         test_key_else_with_throttle,
         test_key_experimental_flags,
         test_key_later_key_replaces,
-        test_key_segments_on_combos,
+        test_key_modifiers_on_combos,
         test_key_conditioned_combo_prefix,
         test_key_mode_switch_timers,
         test_key_channel_timers,

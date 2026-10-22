@@ -9,7 +9,7 @@ import inspect
 
 # `pattern`: group 1 is the number; a condition's are variable, operator, number.
 # `title`: a name to show, where the id is short for something.
-SEGMENTS = {
+MODIFIERS = {
     "th": {
         "title": "throttle",
         "desc": "Input can only fire once per throttle time. Useful for continuous noises that want to act as discrete noises.",
@@ -79,14 +79,14 @@ WHOLE_VARIABLES = {var for var, v in CONDITION_VARIABLES.items() if v["source"] 
 # Longest first, so '>=' is not read as '>'
 _OPS = "|".join(re.escape(op) for op in sorted(OPERATORS, key=len, reverse=True))
 _VARS = "|".join(CONDITION_VARIABLES)
-SEGMENTS["condition"]["pattern"] = rf"({_VARS})({_OPS})(-?\d+(?:\.\d+)?)"
-CONDITION_PATTERN = re.compile(rf"^{SEGMENTS['condition']['pattern']}$")
+MODIFIERS["condition"]["pattern"] = rf"({_VARS})({_OPS})(-?\d+(?:\.\d+)?)"
+CONDITION_PATTERN = re.compile(rf"^{MODIFIERS['condition']['pattern']}$")
 MISFORMATTED_CONDITION_PATTERN = re.compile(rf'({_OPS})\d')
-MODIFIER_SEPARATOR = " + "
-THROTTLE_DEFAULT_MS = SEGMENTS["th"]["default"]
-DEBOUNCE_DEFAULT_MS = SEGMENTS["db"]["default"]
+CHORD_SEPARATOR = " + "
+THROTTLE_DEFAULT_MS = MODIFIERS["th"]["default"]
+DEBOUNCE_DEFAULT_MS = MODIFIERS["db"]["default"]
 
-INIT_PATTERN = re.compile(rf"^{SEGMENTS['init']['pattern']}$")
+INIT_PATTERN = re.compile(rf"^{MODIFIERS['init']['pattern']}$")
 MODE_AGE = "mode_age"
 DEFAULT_INIT_WINDOW_MS = 300
 
@@ -94,18 +94,18 @@ DEFAULT_INIT_WINDOW_MS = 300
 LEGEND_HIDDEN_MODIFIERS = re.compile(r"^(th|db|now)(_\d+)?$")
 
 
-def _legend_segment(segment: str):
-    """One ':' segment as a legend token. Returns (variable, text)"""
-    if LEGEND_HIDDEN_MODIFIERS.match(segment):
+def _legend_modifier(modifier: str):
+    """One ':' modifier as a legend token. Returns (variable, text)"""
+    if LEGEND_HIDDEN_MODIFIERS.match(modifier):
         return (None, None)
-    match = INIT_PATTERN.match(segment)
+    match = INIT_PATTERN.match(modifier)
     if match:
         window = match.group(1)
         return (None, f"init {window}" if window else "init")
-    match = CONDITION_PATTERN.match(segment)
+    match = CONDITION_PATTERN.match(modifier)
     if match:
         return (match.group(1), f"{match.group(1)} {match.group(2)} {match.group(3)}")
-    return (None, segment.replace("_", " "))
+    return (None, modifier.replace("_", " "))
 
 
 def build_legend(commands: dict) -> dict:
@@ -120,8 +120,8 @@ def build_legend(commands: dict) -> dict:
             label = action
         if label == "":
             continue
-        base, *segments = input_key.split(":")
-        tokens = [_legend_segment(s) for s in segments]
+        base, *modifiers = input_key.split(":")
+        tokens = [_legend_modifier(s) for s in modifiers]
         entries.append((base, [t for t in tokens if t[1] is not None], label))
 
     base_counts = {}
@@ -151,36 +151,36 @@ def set_default_init_window(ms: int):
     DEFAULT_INIT_WINDOW_MS = int(ms)
 
 
-def has_modifier(key: str) -> bool:
-    """Check if an input key uses the cross-input modifier syntax ('a + b')."""
-    return MODIFIER_SEPARATOR in key
+def has_chord(key: str) -> bool:
+    """Check if an input key uses the cross-input chord syntax ('a + b')."""
+    return CHORD_SEPARATOR in key
 
 
-def extract_modifier(key: str) -> tuple:
+def extract_chord(key: str) -> tuple:
     """Split 'pedal_left + pop' into ('pedal_left', 'pop').
-    Returns (modifier_name, activator_key)."""
-    parts = key.split(MODIFIER_SEPARATOR, 1)
+    Returns (chord_name, activator_key)."""
+    parts = key.split(CHORD_SEPARATOR, 1)
     return parts[0].strip(), parts[1].strip()
 
 
-def validate_modifier(name: str, base_pairs: set, edge_triggered_bases: set):
-    """Ensure a modifier name is stateful (has start/stop pair or edge-triggered conditions)."""
+def validate_chord(name: str, base_pairs: set, edge_triggered_bases: set):
+    """Ensure a chord's held input is stateful (has start/stop pair or edge-triggered conditions)."""
     if name not in base_pairs and name not in edge_triggered_bases:
         raise ValueError(
-            f"\nModifier '{name}' is not stateful. "
-            f"Modifiers must have a '_stop' or '_up' pair or if/else edge-triggered conditions.\n"
+            f"\n'{name}' is not stateful, so it can't be held in a chord. "
+            f"The held input needs a '_stop' or '_up' pair or if/else edge-triggered conditions.\n"
             f"Defined base_pairs: {base_pairs}\n"
             f"Defined edge_triggered_bases: {edge_triggered_bases}\n"
         )
 
-def parse_condition(segment: str):
-    """Parse a single segment like 'power>10' into ('power', '>', 10.0), or None
+def parse_condition(modifier: str):
+    """Parse a single modifier like 'power>10' into ('power', '>', 10.0), or None
     if not a condition. ':init' and ':init_300' desugar to a mode_age condition."""
-    match = INIT_PATTERN.match(segment)
+    match = INIT_PATTERN.match(modifier)
     if match:
         window = match.group(1)
         return (MODE_AGE, '<', float(window) if window else float(DEFAULT_INIT_WINDOW_MS))
-    match = CONDITION_PATTERN.match(segment)
+    match = CONDITION_PATTERN.match(modifier)
     if match:
         return (match.group(1), match.group(2), float(match.group(3)))
     return None
@@ -207,7 +207,7 @@ def extract_conditions(input_key: str):
     return cleaned_key, conditions
 
 def has_conditions(input_key: str) -> bool:
-    """Quick check if an input key contains condition segments."""
+    """Quick check if an input key contains condition modifiers."""
     parts = input_key.split(':')
     for part in parts:
         if parse_condition(part) is not None:
@@ -289,13 +289,13 @@ def get_base_input(input):
     base_inputs = base_combo.split(' ')
     return base_combo.strip(), base_inputs
 
-def parse_segment(segment: str, init_window_ms: int = None) -> dict:
+def parse_modifier(modifier: str, init_window_ms: int = None) -> dict:
     """'th_90' -> {"id": "th", "text": "th_90", "value": 90, "ms": 90}
     'th' -> value None, ms the default. 'power>10' -> value ["power", ">", 10.0].
     Unknown -> id ""."""
-    out = {"id": "", "text": segment, "value": None}
-    for seg_id, seg in SEGMENTS.items():
-        match = re.fullmatch(seg["pattern"], segment)
+    out = {"id": "", "text": modifier, "value": None}
+    for seg_id, seg in MODIFIERS.items():
+        match = re.fullmatch(seg["pattern"], modifier)
         if not match:
             continue
         out["id"] = seg_id
@@ -311,7 +311,7 @@ def parse_segment(segment: str, init_window_ms: int = None) -> dict:
     return out
 
 def _parse_side(text: str, init_window_ms: int = None) -> dict:
-    base, *segments = text.split(":")
+    base, *modifiers = text.split(":")
     base = base.strip()
     inputs = base.split()
     release_suffix, release_of = "", ""
@@ -326,7 +326,7 @@ def _parse_side(text: str, init_window_ms: int = None) -> dict:
         "release_suffix": release_suffix,
         "release_of": release_of,
         "variables": extract_variables(base),
-        "segments": [parse_segment(s.strip(), init_window_ms) for s in segments],
+        "modifiers": [parse_modifier(s.strip(), init_window_ms) for s in modifiers],
     }
 
 def parse_key(key: str, init_window_ms: int = None) -> dict:
@@ -334,33 +334,33 @@ def parse_key(key: str, init_window_ms: int = None) -> dict:
 
     'pedal_left + pop pop:power>10:th_90' ->
         base "pop pop", inputs ["pop", "pop"], release_suffix "", release_of "",
-        variables [], segments [condition, th],
-        modifier {the same, for "pedal_left"}
+        variables [], modifiers [condition, th],
+        chord {the same, for "pedal_left"}
 
     release_suffix is the end that makes it a release key ('_stop', '_up'),
     release_of the input it releases. A bare init's ms is init_window_ms,
     else the window last set."""
-    modifier = None
-    if has_modifier(key):
-        modifier_raw, key_raw = extract_modifier(key)
-        modifier = _parse_side(modifier_raw, init_window_ms)
+    chord = None
+    if has_chord(key):
+        chord_raw, key_raw = extract_chord(key)
+        chord = _parse_side(chord_raw, init_window_ms)
     else:
         key_raw = key
     out = _parse_side(key_raw, init_window_ms)
     out["key"] = key
-    out["modifier"] = modifier
-    # Modifiers are experimental; their checks run when the map loads
-    out["error"] = "" if modifier else _key_reason(out, _side_info(out))
+    out["chord"] = chord
+    # Chords are experimental; their checks run when the map loads
+    out["error"] = "" if chord else _key_reason(out, _side_info(out))
     return out
 
 def key_options(key: str) -> dict:
     """What can still go on a key, by the same checks a map loads with:
-    {"segments": [id], "conditions": {variable: {"operators": [op], "whole": bool}}}.
-    Empty for a key that can't take more: a combo, a variable key, a modifier,
+    {"modifiers": [id], "conditions": {variable: {"operators": [op], "whole": bool}}}.
+    Empty for a key that can't take more: a combo, a variable key, a chord,
     or a key that is already bad. Rules across keys (else needs a condition,
     one throttle per sound) are input_map_check's."""
-    out = {"segments": [], "conditions": {}}
-    if has_modifier(key) or parse_key(key)["error"]:
+    out = {"modifiers": [], "conditions": {}}
+    if has_chord(key) or parse_key(key)["error"]:
         return out
 
     def ok(candidate):
@@ -371,7 +371,7 @@ def key_options(key: str) -> dict:
         operators = [op for op in OPERATORS if ok(f"{key}:{var}{op}1")]
         if operators:
             out["conditions"][var] = {"operators": operators, "whole": var in WHOLE_VARIABLES}
-    out["segments"] = [seg_id for seg_id in SEGMENTS
+    out["modifiers"] = [seg_id for seg_id in MODIFIERS
                        if (bool(out["conditions"]) if seg_id == "condition" else ok(f"{key}:{seg_id}"))]
     return out
 
@@ -523,7 +523,7 @@ def process_conditional_categorization(input, action, conditions, base_input_map
         immediate_conditional.setdefault(base, []).append((conditions, modified_action))
 
 _AFTER_PATTERN = re.compile(r"after(?:_\d+)?")
-_VALID_SEGMENTS = "th, th_N, now, init, init_N, db_N on a stop, a condition like power>10, else"
+_VALID_MODIFIERS = "th, th_N, now, init, init_N, db_N on a stop, a condition like power>10, else"
 
 def _report(key: str, reason: str):
     print(f"input_map: skipped '{key}'. {reason}")
@@ -532,7 +532,7 @@ def _side_info(side: dict) -> dict:
     """The parts of a key the checks read: conditions (without init), init
     window, else, throttle and debounce ms, now."""
     info = {"conditions": [], "init": None, "else": False, "th": None, "db": None, "now": False}
-    for seg in side["segments"]:
+    for seg in side["modifiers"]:
         sid = seg["id"]
         if sid == "condition":
             info["conditions"].append(tuple(seg["value"]))
@@ -566,26 +566,26 @@ def _key_reason(side: dict, info: dict, ranges: bool = True) -> str:
     """Why one key can't work on its own, or ''. ranges=False skips the check
     that a variable's conditions can all hold, which depends on the numbers."""
     base = side["base"]
-    segments = side["segments"]
+    modifiers = side["modifiers"]
     release = side["release_of"]
     seen = set()
-    for seg in segments:
+    for seg in modifiers:
         sid, text = seg["id"], seg["text"]
         if not sid:
             if _AFTER_PATTERN.fullmatch(text):
                 return (f"':after' was removed in 1.3.0. A plain '{base}' already waits out the combo window "
                         f"and fires only if no combo follows; use '{base}:now' to also fire right away.")
-            return f"Unknown segment '{text}'. Valid: {_VALID_SEGMENTS}."
+            return f"Unknown modifier '{text}'. Valid: {_VALID_MODIFIERS}."
         if sid != "condition" and sid in seen:
             return f"'{sid}' appears more than once."
         seen.add(sid)
     if MISFORMATTED_CONDITION_PATTERN.search(base):
         return f"'{base}' looks like a condition without its ':'. Conditions go after the input: 'pop:power>10'."
-    if segments and (len(side["inputs"]) > 1 or side["variables"]):
-        return "Segments don't go on combos or variable keys. A combo uses the throttle of its sounds."
+    if modifiers and (len(side["inputs"]) > 1 or side["variables"]):
+        return "Modifiers don't go on combos or variable keys. A combo uses the throttle of its sounds."
     if info["else"] and (info["conditions"] or info["init"] is not None):
         return "':else' goes on a key of its own, next to the conditioned keys."
-    for seg in segments:
+    for seg in modifiers:
         sid, text = seg["id"], seg["text"]
         number = f"_{seg['value']}" if seg.get("value") is not None and sid in ("th", "db") else ""
         if sid == "th" and seg["ms"] == 0:
@@ -635,7 +635,7 @@ def check_commands(commands: dict, init_window_ms: int = None):
         if not key or not isinstance(action, tuple) or len(action) < 2:
             parsed[key] = None
             continue
-        if has_modifier(key):
+        if has_chord(key):
             parsed[key] = None
             continue
         side = parse_key(key, init_window_ms)
@@ -754,7 +754,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     hold_stages = {}
     hold_bases = set()
     for input in commands:
-        if has_modifier(input) or has_variables(input) or not has_conditions(input):
+        if has_chord(input) or has_variables(input) or not has_conditions(input):
             continue
         cleaned_key, conditions = extract_conditions(input)
         base_combo = get_base_input(cleaned_key)[0]
@@ -777,7 +777,7 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     active_commands = []
     variable_commands = []
     conditional_commands = []
-    modifier_input_keys = []
+    chord_input_keys = []
 
     for input, action in commands.items():
         if not input or not isinstance(action, tuple) or len(action) < 2:
@@ -798,8 +798,8 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
             print(e)
             continue
 
-        if has_modifier(input):
-            modifier_input_keys.append((input, action))
+        if has_chord(input):
+            chord_input_keys.append((input, action))
             continue
 
         if has_variables(input):
@@ -900,29 +900,29 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
     validate_conditions_no_overlap(immediate_conditional)
     validate_conditions_no_overlap(delayed_conditional)
 
-    # Process deferred modifier keys (e.g. "pedal_left + pop", "gaze:x<500 + pop")
-    modifier_commands = {}
-    for raw_key, action in modifier_input_keys:
-        modifier_raw, activator_raw = extract_modifier(raw_key)
+    # Process deferred chord keys (e.g. "pedal_left + pop", "gaze:x<500 + pop")
+    chord_commands = {}
+    for raw_key, action in chord_input_keys:
+        chord_raw, activator_raw = extract_chord(raw_key)
 
-        # Parse optional conditions from modifier side (e.g. "gaze:x<500" → "gaze", conditions)
-        modifier_conditions = None
-        if has_conditions(modifier_raw):
-            modifier_base, modifier_conditions = extract_conditions(modifier_raw)
-            modifier_base = get_base_input(modifier_base)[0]
+        # Parse optional conditions from held side (e.g. "gaze:x<500" → "gaze", conditions)
+        chord_conditions = None
+        if has_conditions(chord_raw):
+            chord_base, chord_conditions = extract_conditions(chord_raw)
+            chord_base = get_base_input(chord_base)[0]
         else:
-            modifier_base = modifier_raw
+            chord_base = chord_raw
 
         try:
-            validate_modifier(modifier_base, base_pairs, edge_triggered_bases)
+            validate_chord(chord_base, base_pairs, edge_triggered_bases)
         except ValueError as e:
             _report(raw_key, str(e).strip())
             continue
         # Region matching can't hold mode_age, so ':init' never matches there
-        if modifier_conditions and modifier_base in edge_triggered_bases \
-                and any(var == MODE_AGE for var, _, _ in modifier_conditions):
-            _report(raw_key, f"Cannot use ':init' on '{modifier_base}', an edge-triggered base. "
-                             f"Put ':init' on the activator side of a plain modifier instead.")
+        if chord_conditions and chord_base in edge_triggered_bases \
+                and any(var == MODE_AGE for var, _, _ in chord_conditions):
+            _report(raw_key, f"Cannot use ':init' on '{chord_base}', an edge-triggered base. "
+                             f"Put ':init' on the activator side of a plain chord instead.")
             continue
 
         activator_action = get_modified_action(activator_raw, action, throttle_busy, debounce_busy)
@@ -933,11 +933,11 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         for inp in activator_inputs:
             base_input_set.add(inp)
 
-        modifier_commands.setdefault(activator_base, []).append(
-            (modifier_base, modifier_conditions, activator_action)
+        chord_commands.setdefault(activator_base, []).append(
+            (chord_base, chord_conditions, activator_action)
         )
 
-    has_mods = bool(modifier_commands)
+    has_mods = bool(chord_commands)
 
     has_vars = bool(immediate_variable_patterns or delayed_variable_patterns)
     has_conds = bool(immediate_conditional or delayed_conditional)
@@ -952,9 +952,9 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         for entries in list(immediate_conditional.values()) + list(delayed_conditional.values())
     )
 
-    # Modifier-side conditions ('pedal:init + pop') are evaluated against the same
+    # Held-side conditions ('pedal:init + pop') are evaluated against the same
     # context, so they have to arm the clock too or they never match.
-    for entries in modifier_commands.values():
+    for entries in chord_commands.values():
         for mod_name, mod_conditions, _ in entries:
             if mod_conditions and any(var == MODE_AGE for var, _, _ in mod_conditions):
                 has_mode_age = True
@@ -1015,8 +1015,8 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         "edge_triggered_bases": edge_triggered_bases,
         "edge_else_actions": edge_else_actions,
         "has_edge_triggered": has_edge,
-        "modifier_commands": modifier_commands,
-        "has_modifiers": has_mods,
+        "chord_commands": chord_commands,
+        "has_chords": has_mods,
         "has_dur": has_dur or bool(hold_stages),
         "has_mode_age": has_mode_age,
         "hold_stages": {base: sorted(stages, key=lambda s: s[0]) for base, stages in hold_stages.items()},

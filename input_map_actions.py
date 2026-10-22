@@ -277,19 +277,19 @@ class Actions:
     def input_map_key_parse(key: str) -> dict:
         """
         Parse an input map key into its inputs, release suffix, 'a + b'
-        modifier and ':' segments.
+        chord and ':' modifiers.
 
         Example:
         ```py
         actions.user.input_map_key_parse("pop:power>10:th")
         # {"key": "pop:power>10:th", "base": "pop", "inputs": ["pop"],
-        #  "release_suffix": "", "release_of": "", "variables": [], "modifier": None,
-        #  "segments": [
+        #  "release_suffix": "", "release_of": "", "variables": [], "chord": None,
+        #  "modifiers": [
         #      {"id": "condition", "text": "power>10", "value": ["power", ">", 10.0]},
         #      {"id": "th", "text": "th", "value": None, "ms": 100}],
         #  "error": ""}
         ```
-        A segment's id is a Type: input_map.segment, or "" if unknown.
+        A modifier's id is a Type: input_map.modifier, or "" if unknown.
         error is why the key can't work on its own, or "". Rules across
         keys are input_map_check's.
         """
@@ -302,12 +302,12 @@ class Actions:
         Example:
         ```py
         actions.user.input_map_key_options("hiss_stop")
-        # {"segments": ["db", "init", "condition", "else"],
+        # {"modifiers": ["db", "init", "condition", "else"],
         #  "conditions": {"dur": {"operators": [">", "<", ">=", "<=", "==", "!="], "whole": True}, ...}}
         ```
-        segments are Type: input_map.segment ids, conditions are keyed by
+        modifiers are Type: input_map.modifier ids, conditions are keyed by
         Type: input_map.condition_variable. Empty for a combo, a variable key,
-        a modifier, or a key that is already bad.
+        a chord, or a key that is already bad.
         """
         return key_options(key)
 

@@ -56,8 +56,8 @@ class InputMap():
         self.base_pairs = set()
         self._edge_debounce_jobs = {}
         self.edge_debounce_ms = 0
-        self.modifier_commands = {}
-        self.has_modifiers = False
+        self.chord_commands = {}
+        self.has_chords = False
         self._held_inputs = {}
         self.has_dur = False
         self._start_timestamps = {}
@@ -177,8 +177,8 @@ class InputMap():
             self.base_inputs = cached["base_input_set"]
             self.base_pairs = cached["base_pairs"]
             self.unique_combos = cached["unique_combos"]
-            self.modifier_commands = cached["modifier_commands"]
-            self.has_modifiers = cached["has_modifiers"]
+            self.chord_commands = cached["chord_commands"]
+            self.has_chords = cached["has_chords"]
             self.has_dur = cached["has_dur"]
             self.hold_stages = cached["hold_stages"]
             self._hold_stop_debounced = cached["hold_stop_debounced"]
@@ -217,8 +217,8 @@ class InputMap():
         self.base_inputs = categorized["base_input_set"]
         self.base_pairs = categorized["base_pairs"]
         self.unique_combos = categorized["unique_combos"]
-        self.modifier_commands = categorized["modifier_commands"]
-        self.has_modifiers = categorized["has_modifiers"]
+        self.chord_commands = categorized["chord_commands"]
+        self.has_chords = categorized["has_chords"]
         self.has_dur = categorized["has_dur"]
         self.hold_stages = categorized["hold_stages"]
         self._hold_stop_debounced = categorized["hold_stop_debounced"]
@@ -265,7 +265,7 @@ class InputMap():
         pending = self.pending_combo
         self.combo_chain = ""
         self.pending_combo = None
-        if self._try_modifier_dispatch(pending):
+        if self._try_chord_dispatch(pending):
             return
         # Try conditional first, fall through to unconditional
         if self.has_conditions and self._dispatch_conditional(pending, self.delayed_conditional):
@@ -374,27 +374,27 @@ class InputMap():
             return self._try_conditional_edge(input_chain, conditional_dict)
         return self._try_conditional(input_chain, conditional_dict)
 
-    def _is_modifier_active(self, modifier_name: str) -> bool:
-        """Check if a modifier input is currently active (held or in a non-else region)."""
-        if modifier_name in self._held_inputs:
-            return self._held_inputs[modifier_name]
-        if self.has_edge_triggered and modifier_name in self._edge_triggered_bases:
-            region = self._active_region.get(modifier_name)
+    def _is_modifier_active(self, chord_name: str) -> bool:
+        """Check if a chord input is currently active (held or in a non-else region)."""
+        if chord_name in self._held_inputs:
+            return self._held_inputs[chord_name]
+        if self.has_edge_triggered and chord_name in self._edge_triggered_bases:
+            region = self._active_region.get(chord_name)
             return region is not None and region != _REGION_ELSE
         return False
 
-    def _try_modifier_dispatch(self, input_chain: str) -> bool:
-        """Try to dispatch via cross-input modifier. Returns True if handled."""
-        if not self.has_modifiers:
+    def _try_chord_dispatch(self, input_chain: str) -> bool:
+        """Try to dispatch via cross-input chord. Returns True if handled."""
+        if not self.has_chords:
             return False
-        mod_entries = self.modifier_commands.get(input_chain)
+        mod_entries = self.chord_commands.get(input_chain)
         if not mod_entries:
             return False
         for mod_name, conditions, action_tuple in mod_entries:
             if self._is_modifier_active(mod_name):
                 if conditions is not None:
                     if self.has_edge_triggered and mod_name in self._edge_triggered_bases:
-                        if not self._modifier_matches_active_region(mod_name, conditions):
+                        if not self._chord_matches_active_region(mod_name, conditions):
                             continue
                     elif not evaluate_conditions(conditions, self._context):
                         continue
@@ -407,8 +407,8 @@ class InputMap():
                 return True
         return False
 
-    def _modifier_matches_active_region(self, mod_name: str, conditions: list) -> bool:
-        """Check if modifier conditions match the currently active edge-triggered region."""
+    def _chord_matches_active_region(self, mod_name: str, conditions: list) -> bool:
+        """Check if chord conditions match the currently active edge-triggered region."""
         active_idx = self._active_region.get(mod_name)
         if active_idx is None or active_idx == _REGION_ELSE:
             return False
@@ -599,7 +599,7 @@ class InputMap():
                 self._start_timestamps[input_name] = time.monotonic()
             return
 
-        if self.has_modifiers:
+        if self.has_chords:
             if input_name in self.base_pairs:
                 self._held_inputs[input_name] = True
             elif input_name.endswith("_stop"):
@@ -629,7 +629,7 @@ class InputMap():
 
         self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
 
-        if self._try_modifier_dispatch(self.combo_chain):
+        if self._try_chord_dispatch(self.combo_chain):
             self.combo_chain = ""
             self.pending_combo = None
             return

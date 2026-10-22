@@ -16,7 +16,7 @@ This is an alternate way to define your noises, parrot, foot pedals, face gestur
 - tap vs hold, via `dur`
 - fire only once a sound has lasted a while, via `dur`
 - bindings scoped to the moment a mode is entered
-- cross-input modifiers
+- chords: one input while another is held
 
 > Formerly known as `parrot_config`.
 
@@ -50,10 +50,10 @@ git clone https://github.com/rokubop/talon-input-map/
 "hiss:dur>=200":      ("charge",  lambda: actions.user.charge())         # only once held 200ms
 "pop:power>10:th_100":("burst",   lambda: actions.user.strong_click())   # compose
 "hiss:init":          ("redirect",lambda: actions.user.other_mode())     # first 300ms of a mode
-"pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # cross-input modifier
+"pedal + pop":        ("R click", lambda: actions.mouse_click(1))        # chord: pop while pedal held
 ```
 
-[Modes](#modes) | [Single](#single) | [Options](#options) | [Now](#now) | [Init window](#init-window) | [Duration](#condition-duration) | [Cross-input modifier](#cross-input-modifier) | [Edge debounce](#edge-debounce) | [Settings](#settings) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
+[Modes](#modes) | [Single](#single) | [Options](#options) | [Now](#now) | [Init window](#init-window) | [Duration](#condition-duration) | [Chord](#chord) | [Edge debounce](#edge-debounce) | [Settings](#settings) | [Legend](#legend) | [Events](#events) | [Channels](#channels---multiple-input-maps-at-the-same-time)
 
 ## Table of Contents
 - [Talon Input Map](#talon-input-map)
@@ -277,23 +277,23 @@ noise.register("hiss", lambda active: actions.user.input_map_handle_bool("hiss",
 ```
 Maps `True` to `"hiss"`, `False` to `"hiss_stop"`.
 
-**Cross-input modifier**
+**Chord**
 ```py
 "pedal_left":           ("hold",    lambda: actions.user.hold_action()),
 "pedal_left_stop":      ("release", lambda: actions.user.release_action()),
 "pop":                  ("click",   lambda: actions.mouse_click(0)),
 "pedal_left + pop":     ("R click", lambda: actions.mouse_click(1)),   # pop while pedal held
 ```
-The left side of `+` is the **modifier** - must be stateful (has a `_stop` pair or if/else edge-triggered conditions). The right side is the **activator** - the discrete event. When the modifier is active, the modifier action fires instead of the normal action. When not active, the normal action fires.
+Experimental. The left side of `+` is the **held** input - must be stateful (has a `_stop` pair or if/else edge-triggered conditions). The right side is the **activator** - the discrete event. While the held input is active, the chord's action fires instead of the normal action. Otherwise the normal action fires.
 
-Works with edge-triggered modifiers too:
+Works with edge-triggered held inputs too:
 ```py
 "gaze:x<-0.5":    ("look left",  lambda: ...),
 "gaze:else":       ("neutral",    lambda: ...),
 "gaze + pop":      ("gaze click", lambda: actions.mouse_click(1)),  # pop while gaze active (non-else)
 ```
 
-Conditions on the modifier side target specific regions:
+Conditions on the held side target specific regions:
 ```py
 "gaze:x<500 + pop":  ("left click",  lambda: actions.mouse_click(0)),  # pop while gaze x<500
 "gaze:x>=500 + pop": ("right click", lambda: actions.mouse_click(1)),  # pop while gaze x>=500
@@ -316,7 +316,7 @@ Conditions, throttle, and debounce can be combined:
 ```py
 "pop:power>10:th_100": ("throttled loud click", lambda: actions.user.strong_click()),
 ```
-Segments go on single inputs, not combos or variable keys. A combo uses the throttle of its sounds.
+Modifiers go on single inputs, not combos or variable keys. A combo uses the throttle of its sounds.
 
 A key that can't work prints why and what to write instead, and is skipped. The rest of the map still loads.
 
@@ -445,7 +445,7 @@ actions.user.input_map_single_value("dimple_left", dimple_map, value)
 actions.user.input_map_single_bool("hiss", hiss_map, active)
 ```
 
-Map formats - just callables, with labels, or expanded for combos/modifiers:
+Map formats - just callables, with labels, or expanded for combos/chords:
 ```py
 # Just callables
 pop_map = {
@@ -459,7 +459,7 @@ pop_map = {
     "repeat": ("repeat",     lambda: actions.core.repeat_command(1)),
 }
 
-# Expanded - for combos/modifiers
+# Expanded - for combos/chords
 pop_map = {
     "click": {
         "pop":     ("click",        lambda: actions.mouse_click(0)),
