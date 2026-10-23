@@ -6,6 +6,7 @@ input_map_single provides a minimal way to make a single input mode-aware.
 Auto-registers on first call; re-registers if the map reference changes.
 """
 from .input_map import InputMap, input_map_event_trigger
+from .input_map_parse import build_legend
 
 # Registry of name -> InputMap instance
 _singles: dict[str, InputMap] = {}
@@ -128,7 +129,7 @@ def single_mode_revert(name: str) -> str:
 def single_get_legend(name: str, user_map: dict, mode: str = None) -> dict[str, str]:
     """Get the legend for a single input map.
 
-    Returns {input: label} with modifiers stripped and empty entries filtered.
+    Returns {input: label}. Bases with several bindings keep a readable modifier.
     """
     if name not in _singles or _singles_map_ref[name] is not user_map:
         _register_single(name, user_map)
@@ -142,19 +143,4 @@ def single_get_legend(name: str, user_map: dict, mode: str = None) -> dict[str, 
     if mode not in normalized:
         raise ValueError(f"Mode '{mode}' not found in single '{name}'")
 
-    commands = normalized[mode]
-    legend = {}
-    for input_key, action_tuple in commands.items():
-        if isinstance(action_tuple, tuple):
-            if len(action_tuple) == 0:
-                continue
-            label = action_tuple[0]
-        else:
-            label = action_tuple
-
-        if label == "":
-            continue
-        input_key = input_key.split(":")[0]
-        legend[input_key] = label
-
-    return legend
+    return build_legend(normalized[mode])

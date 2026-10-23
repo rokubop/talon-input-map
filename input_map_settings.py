@@ -12,6 +12,12 @@ mod.setting(
     desc="The time window (ms) to wait for a combo to complete",
 )
 mod.setting(
+    "input_map_init_window",
+    type=int,
+    default=300,
+    desc="The window (ms) a bare ':init' binding covers after a mode is entered",
+)
+mod.setting(
     "input_map_edge_debounce_ms",
     type=int,
     default=0,

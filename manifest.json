@@ -2,7 +2,7 @@
   "name": "talon-input-map",
   "title": "Input Map",
   "description": "This is an alternate way to define your input commands in a way that supports combos, throttling, debounce, switching out configs easily without needing to create new modes. Works with parrot noises, foot pedals, face tracking, or any other input source.",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "status": "stable",
   "namespace": "user.input_map",
   "github": "https://github.com/rokubop/talon-input-map/",
@@ -19,7 +19,8 @@
   "contributes": {
     "settings": [
       "user.input_map_combo_window",
-      "user.input_map_edge_debounce_ms"
+      "user.input_map_edge_debounce_ms",
+      "user.input_map_init_window"
     ],
     "actions": [
       "user.input_map",
@@ -39,7 +40,9 @@
       "user.input_map_channel_mode_set",
       "user.input_map_channel_register",
       "user.input_map_channel_unregister",
+      "user.input_map_check",
       "user.input_map_event_register",
+      "user.input_map_event_simulate",
       "user.input_map_event_unregister",
       "user.input_map_get",
       "user.input_map_get_legend",
@@ -50,6 +53,8 @@
       "user.input_map_handle_parrot",
       "user.input_map_handle_value",
       "user.input_map_handle_xy",
+      "user.input_map_key_options",
+      "user.input_map_key_parse",
       "user.input_map_mode_cycle",
       "user.input_map_mode_get",
       "user.input_map_mode_revert",
@@ -66,6 +71,7 @@
       "user.input_map_single_value",
       "user.input_map_single_xy",
       "user.input_map_tests",
+      "user.input_map_types",
       "user.input_map_version"
     ]
   },

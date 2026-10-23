@@ -7,13 +7,17 @@ from .input_map_parse import (
     match_variable_pattern,
     has_variables,
     has_conditions,
-    has_modifier,
-    extract_modifier,
-    validate_modifier,
+    has_chord,
+    extract_chord,
+    validate_chord,
     validate_variable_action,
     parse_condition,
     extract_conditions,
     evaluate_conditions,
+    build_legend,
+    parse_key,
+    parse_modifier,
+    CONTEXT_KEYS,
 )
 from .input_map_channel import (
     channel_register,
@@ -43,6 +47,25 @@ from .input_map_single import (
     _singles_map_ref,
     _singles_mode_order,
 )
+import contextlib
+import io
+
+def _load(config):
+    """Set up a map. Returns it and what setup printed, where bad keys are reported."""
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        input_map = InputMap()
+        input_map.setup(config)
+    return input_map, printed.getvalue()
+
+def _assert_clean(printed):
+    assert printed == "", f"Failed: expected no errors, got:\n{printed}"
+
+def _assert_bad(printed, key, *hints):
+    """The error names the key and says each hint (a reason, or the key to write instead)."""
+    assert key in printed, f"Failed: no error naming '{key}', got:\n{printed}"
+    for hint in hints:
+        assert hint in printed, f"Failed: error for '{key}' doesn't say '{hint}', got:\n{printed}"
 
 # To run the test suite, open the Talon REPL and run:
 #
@@ -336,21 +359,20 @@ def test_input_map_debounce():
 
     executed = []
     test_config = {
-        "hiss:db_100": ("debounced action", lambda: executed.append("debounced")),
-        "hiss_stop": ("stop", lambda: executed.append("stop")),
+        "hiss": ("start", lambda: executed.append("start")),
+        "hiss_stop:db_100": ("debounced stop", lambda: executed.append("stop")),
     }
 
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # First execution should schedule but not execute immediately
     input_map.execute("hiss")
-    assert executed == [], f"Failed: debounced command executed immediately, got {executed}"
-    print("  ✓ Debounced command doesn't execute immediately")
+    input_map.execute("hiss_stop")
+    assert executed == ["start"], f"Failed: debounced stop executed immediately, got {executed}"
+    print("  ✓ Debounced stop doesn't execute immediately")
 
-    # After debounce period, should execute
     actions.sleep("200ms")
-    assert executed == ["debounced"], f"Failed: didn't execute after debounce period, got {executed}"
+    assert executed == ["start", "stop"], f"Failed: didn't execute after debounce period, got {executed}"
     print("  ✓ Executes after debounce period")
 
     print()
@@ -508,10 +530,11 @@ def test_channel_get_legend():
     channel_register("test_legend", test_config)
 
     legend = channel_get_legend("test_legend")
-    assert legend.get("pop") == "Click", f"Failed: got {legend}"
-    assert legend.get("hiss") == "Scroll", f"Failed: modifier not stripped, got {legend}"
-    assert "cluck" not in legend, f"Failed: empty label not filtered, got {legend}"
-    print("  ✓ Legend generated correctly")
+    assert legend == {
+        "pop": "Click",
+        "hiss": "Scroll",
+    }, f"Failed: got {legend}"
+    print("  ✓ Legend generated correctly (modifier hidden, empty label filtered)")
 
     channel_unregister("test_legend")
     print()
@@ -571,7 +594,7 @@ def test_parse_condition():
     assert result == ("power", ">", -5.0), f"Failed: got {result}"
     print("  ✓ negative threshold")
 
-    # Non-condition segments
+    # Non-condition modifiers
     result = parse_condition("th_100")
     assert result is None, f"Failed: got {result}"
     print("  ✓ th_100 returns None")
@@ -731,7 +754,7 @@ def test_input_map_conditional_multi_condition():
     executed = []
     test_config = {
         "gaze:x<500:y<500": ("top-left", lambda: executed.append("top_left")),
-        "gaze": ("default gaze", lambda: executed.append("default")),
+        "gaze:else": ("default gaze", lambda: executed.append("default")),
     }
 
     input_map = InputMap()
@@ -744,7 +767,7 @@ def test_input_map_conditional_multi_condition():
     executed.clear()
     input_map.execute("gaze", x=600.0, y=100.0)
     assert executed == ["default"], f"Failed: got {executed}"
-    print("  ✓ x>=500 falls through to default")
+    print("  ✓ x>=500 falls through to else")
 
     print()
 
@@ -1133,23 +1156,22 @@ def test_input_map_spread_override_different_modifier():
 
     combat_input_map = {
         **default_input_map,
-        "hiss:db_90": ("debounced scroll", lambda: executed.append("debounced")),
+        "hiss:th_300": ("slow scroll", lambda: executed.append("slow")),
     }
 
     input_map = InputMap()
     input_map.setup(combat_input_map)
 
-    # Both keys exist in the dict ("hiss:th_90" from spread, "hiss:db_90" from override)
-    # Both resolve to base "hiss" - the last one processed should win
+    # Both keys exist in the dict ("hiss:th_90" from spread, "hiss:th_300" from override)
+    # Both resolve to base "hiss" - the later one replaces the earlier
     input_map.execute("hiss")
+    assert executed == ["slow"], f"Failed: override should win, got {executed}"
+    print("  ✓ Later key (th_300) replaces spread key (th_90)")
 
-    # The debounced one (last in dict) should win, but it's debounced so no immediate execution
-    assert executed == [], f"Failed: debounce should delay execution, got {executed}"
-    print("  ✓ Last modifier (db) wins over spread modifier (th)")
-
-    actions.sleep("200ms")
-    assert executed == ["debounced"], f"Failed: debounce didn't fire, got {executed}"
-    print("  ✓ Debounced action fires after delay")
+    actions.sleep("150ms")
+    input_map.execute("hiss")
+    assert executed == ["slow"], f"Failed: th_300 should still hold at 150ms, got {executed}"
+    print("  ✓ Override's throttle applies")
 
     print()
 
@@ -1310,7 +1332,7 @@ def test_single_handle_expanded():
     print("  ✓ Single input delayed (combo exists)")
 
     # After combo window, single fires
-    actions.sleep("310ms")
+    actions.sleep("350ms")
     assert executed == ["click"], f"Failed: got {executed}"
     print("  ✓ Single fires after combo window")
 
@@ -1428,11 +1450,11 @@ def test_single_get_legend():
     }
 
     legend = single_get_legend("test_legend_s", pop_map)
-    assert legend == {"test_legend_s": "left click"}, f"Failed: got {legend}"
+    assert legend == {"test legend s": "left click"}, f"Failed: got {legend}"
     print("  ✓ Returns {input: label}")
 
     legend2 = single_get_legend("test_legend_s", pop_map, "repeat")
-    assert legend2 == {"test_legend_s": "repeat cmd"}, f"Failed: got {legend2}"
+    assert legend2 == {"test legend s": "repeat cmd"}, f"Failed: got {legend2}"
     print("  ✓ Specific mode legend works")
 
     _cleanup_single("test_legend_s")
@@ -1643,64 +1665,64 @@ def test_handle_bool_single():
     _cleanup_single("test_bool_s_stop")
     print()
 
-def test_has_modifier():
-    print("Testing has_modifier...")
+def test_has_chord():
+    print("Testing has_chord...")
 
-    assert has_modifier("pedal_left + pop") == True
+    assert has_chord("pedal_left + pop") == True
     print("  ✓ 'pedal_left + pop' detected")
 
-    assert has_modifier("pop") == False
-    print("  ✓ 'pop' not a modifier")
+    assert has_chord("pop") == False
+    print("  ✓ 'pop' not a chord")
 
-    assert has_modifier("pop cluck") == False
-    print("  ✓ 'pop cluck' not a modifier")
+    assert has_chord("pop cluck") == False
+    print("  ✓ 'pop cluck' not a chord")
 
-    assert has_modifier("pedal_left + pop cluck") == True
+    assert has_chord("pedal_left + pop cluck") == True
     print("  ✓ 'pedal_left + pop cluck' detected")
 
     print()
 
-def test_extract_modifier():
-    print("Testing extract_modifier...")
+def test_extract_chord():
+    print("Testing extract_chord...")
 
-    mod, act = extract_modifier("pedal_left + pop")
+    mod, act = extract_chord("pedal_left + pop")
     assert mod == "pedal_left" and act == "pop", f"Failed: got {mod}, {act}"
-    print("  ✓ Simple modifier split")
+    print("  ✓ Simple chord split")
 
-    mod, act = extract_modifier("pedal_left + pop cluck")
+    mod, act = extract_chord("pedal_left + pop cluck")
     assert mod == "pedal_left" and act == "pop cluck", f"Failed: got {mod}, {act}"
-    print("  ✓ Modifier with combo activator")
+    print("  ✓ Chord with combo activator")
 
     print()
 
-def test_validate_modifier():
-    print("Testing validate_modifier...")
+def test_validate_chord():
+    print("Testing validate_chord...")
 
     # Valid: in base_pairs
     try:
-        validate_modifier("pedal_left", {"pedal_left"}, set())
-        print("  ✓ Valid modifier in base_pairs")
+        validate_chord("pedal_left", {"pedal_left"}, set())
+        print("  ✓ Valid chord in base_pairs")
     except ValueError:
-        assert False, "Should not raise for valid modifier"
+        assert False, "Should not raise for valid chord"
 
     # Valid: in edge_triggered_bases
     try:
-        validate_modifier("gaze", set(), {"gaze"})
-        print("  ✓ Valid modifier in edge_triggered_bases")
+        validate_chord("gaze", set(), {"gaze"})
+        print("  ✓ Valid chord in edge_triggered_bases")
     except ValueError:
-        assert False, "Should not raise for valid edge modifier"
+        assert False, "Should not raise for valid edge chord"
 
     # Invalid: not stateful
     try:
-        validate_modifier("pop", set(), set())
+        validate_chord("pop", set(), set())
         assert False, "Should have raised ValueError"
     except ValueError:
-        print("  ✓ Invalid modifier raises ValueError")
+        print("  ✓ Invalid chord raises ValueError")
 
     print()
 
-def test_modifier_held_basic():
-    print("Testing modifier held basic (start/stop)...")
+def test_chord_held_basic():
+    print("Testing chord held basic (start/stop)...")
 
     executed = []
     test_config = {
@@ -1716,14 +1738,14 @@ def test_modifier_held_basic():
     # Pop without pedal held → normal action
     input_map.execute("pop")
     assert executed == ["click"], f"Failed: got {executed}"
-    print("  ✓ Pop without modifier → normal")
+    print("  ✓ Pop without chord → normal")
 
-    # Hold pedal, then pop → modifier action
+    # Hold pedal, then pop → chord action
     executed.clear()
     input_map.execute("pedal_left")
     input_map.execute("pop")
     assert "mod_click" in executed, f"Failed: got {executed}"
-    print("  ✓ Pop while pedal held → modifier action")
+    print("  ✓ Pop while pedal held → chord action")
 
     # Release pedal, then pop → normal action
     executed.clear()
@@ -1734,8 +1756,8 @@ def test_modifier_held_basic():
 
     print()
 
-def test_modifier_edge_triggered():
-    print("Testing modifier with edge-triggered conditions...")
+def test_chord_edge_triggered():
+    print("Testing chord with edge-triggered conditions...")
 
     executed = []
     test_config = {
@@ -1754,25 +1776,25 @@ def test_modifier_edge_triggered():
     assert executed == ["click"], f"Failed: got {executed}"
     print("  ✓ Pop in neutral → normal")
 
-    # Enter left region, then pop → modifier
+    # Enter left region, then pop → chord
     executed.clear()
     input_map.execute("gaze", x=100.0)
     input_map.execute("pop")
     assert "gaze_click" in executed, f"Failed: got {executed}"
-    print("  ✓ Pop while gaze active → modifier action")
+    print("  ✓ Pop while gaze active → chord action")
 
     # Enter else region, then pop → normal
     executed.clear()
     input_map.execute("gaze", x=600.0)  # goes to right
     input_map.execute("pop")
-    # gaze is in right region (not else), so modifier is active
+    # gaze is in right region (not else), so chord is active
     assert "gaze_click" in executed, f"Failed: got {executed}"
-    print("  ✓ Pop while gaze in non-else region → modifier action")
+    print("  ✓ Pop while gaze in non-else region → chord action")
 
     print()
 
-def test_modifier_release_resets_held():
-    print("Testing modifier release resets held state...")
+def test_chord_release_resets_held():
+    print("Testing chord release resets held state...")
 
     executed = []
     test_config = {
@@ -1785,7 +1807,7 @@ def test_modifier_release_resets_held():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # Hold → pop (modifier) → release → pop (normal)
+    # Hold → pop (chord) → release → pop (normal)
     input_map.execute("pedal_left")
     input_map.execute("pop")
     assert "mod_click" in executed, f"Failed first: got {executed}"
@@ -1798,8 +1820,8 @@ def test_modifier_release_resets_held():
 
     print()
 
-def test_modifier_with_combo_activator():
-    print("Testing modifier with combo activator...")
+def test_chord_with_combo_activator():
+    print("Testing chord with combo activator...")
 
     executed = []
     test_config = {
@@ -1813,18 +1835,18 @@ def test_modifier_with_combo_activator():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    # Hold pedal, then pop cluck → modifier combo
+    # Hold pedal, then pop cluck → chord combo
     input_map.execute("pedal_left")
     executed.clear()
     input_map.execute("pop")
     input_map.execute("cluck")
     assert "mod_combo" in executed, f"Failed: got {executed}"
-    print("  ✓ Modifier with combo activator works")
+    print("  ✓ Chord with combo activator works")
 
     print()
 
-def test_modifier_mode_switch_resets():
-    print("Testing modifier mode switch resets held state...")
+def test_chord_mode_switch_resets():
+    print("Testing chord mode switch resets held state...")
 
     executed = []
     test_config = {
@@ -1855,8 +1877,8 @@ def test_modifier_mode_switch_resets():
 
     print()
 
-def test_modifier_has_modifiers_false():
-    print("Testing has_modifiers=False when no + keys...")
+def test_chord_has_chords_false():
+    print("Testing has_chords=False when no + keys...")
 
     test_config = {
         "pop":  ("click",   lambda: None),
@@ -1866,14 +1888,14 @@ def test_modifier_has_modifiers_false():
     input_map = InputMap()
     input_map.setup(test_config)
 
-    assert input_map.has_modifiers == False, f"Failed: has_modifiers should be False"
+    assert input_map.has_chords == False, f"Failed: has_chords should be False"
     assert input_map._held_inputs == {}, f"Failed: _held_inputs should be empty"
-    print("  ✓ has_modifiers=False, zero overhead path")
+    print("  ✓ has_chords=False, zero overhead path")
 
     print()
 
-def test_modifier_fallthrough():
-    print("Testing modifier fallthrough...")
+def test_chord_fallthrough():
+    print("Testing chord fallthrough...")
 
     executed = []
     test_config = {
@@ -1889,12 +1911,12 @@ def test_modifier_fallthrough():
     # Without holding pedal, pop should fall through to normal
     input_map.execute("pop")
     assert executed == ["click"], f"Failed: got {executed}"
-    print("  ✓ Modifier not active → falls through to normal dispatch")
+    print("  ✓ Chord not active → falls through to normal dispatch")
 
     print()
 
-def test_modifier_conditional():
-    print("Testing modifier with conditions on modifier side...")
+def test_chord_conditional():
+    print("Testing chord with conditions on held side...")
 
     executed = []
     test_config = {
@@ -1914,14 +1936,14 @@ def test_modifier_conditional():
     assert executed == ["click"], f"Failed: got {executed}"
     print("  ✓ Pop in neutral → normal click")
 
-    # Enter left region, then pop → left modifier
+    # Enter left region, then pop → left chord
     executed.clear()
     input_map.execute("gaze", x=100.0)
     input_map.execute("pop")
     assert "left_click" in executed, f"Failed: got {executed}"
     print("  ✓ Pop while gaze x<500 → left_click")
 
-    # Enter right region, then pop → right modifier
+    # Enter right region, then pop → right chord
     executed.clear()
     input_map.execute("gaze", x=600.0)
     input_map.execute("pop")
@@ -1937,152 +1959,23 @@ def test_modifier_conditional():
 
     print()
 
-def test_modifier_parse_validation_error():
-    print("Testing modifier parse validation error...")
+def test_chord_parse_validation_error():
+    print("Testing chord parse validation error...")
 
+    executed = []
     test_config = {
-        "pop":              ("click",   lambda: None),
+        "pop":              ("click",   lambda: executed.append("click")),
         "pop + cluck":      ("mod click", lambda: None),
+        "cluck":            ("cluck",   lambda: executed.append("cluck")),
     }
 
-    try:
-        input_map = InputMap()
-        input_map.setup(test_config)
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert "not stateful" in str(e), f"Wrong error: {e}"
-        print("  ✓ Non-stateful modifier raises error")
+    input_map, printed = _load(test_config)
+    _assert_bad(printed, "pop + cluck", "not stateful")
+    print("  ✓ Non-stateful chord prints an error")
 
-    print()
-
-def test_debounce_start_stop_brief_noise():
-    print("Testing debounce start/stop brief noise (neither fires)...")
-
-    executed = []
-    test_config = {
-        "whistle:db_100": ("start", lambda: executed.append("start")),
-        "whistle_stop:db_200": ("stop", lambda: executed.append("stop")),
-    }
-
-    input_map = InputMap()
-    input_map.setup(test_config)
-
-    # Brief noise: start then immediately stop
-    input_map.execute("whistle")
-    input_map.execute("whistle_stop")
-    assert executed == [], f"Failed: should not execute yet, got {executed}"
-
-    # Start debounce fires at 100ms - but stop is pending, so cancel both
-    actions.sleep("200ms")
-    assert executed == [], f"Failed: start should not fire (noise too brief), got {executed}"
-
-    # Stop debounce would fire at 200ms - but was already cancelled
-    actions.sleep("200ms")
-    assert executed == [], f"Failed: stop should not fire either, got {executed}"
-    print("  ✓ Brief noise: neither start nor stop fires")
-
-    print()
-
-def test_debounce_start_stop_sustained_noise():
-    print("Testing debounce start/stop sustained noise with chatter...")
-
-    executed = []
-    test_config = {
-        "whistle:db_100": ("start", lambda: executed.append("start")),
-        "whistle_stop:db_200": ("stop", lambda: executed.append("stop")),
-    }
-
-    input_map = InputMap()
-    input_map.setup(test_config)
-
-    # Chatter: start/stop/start rapidly, then sustain
-    input_map.execute("whistle")        # t=0   start db begins (100ms)
-    actions.sleep("20ms")
-    input_map.execute("whistle_stop")   # t=20  stop db begins (200ms)
-    actions.sleep("10ms")
-    input_map.execute("whistle")        # t=30  cancels stop db, swallowed (line 440-444)
-    assert executed == [], f"Failed: should not execute yet, got {executed}"
-
-    # Start debounce fires at t=100 - no pending stop, so it fires
-    actions.sleep("200ms")
-    assert executed == ["start"], f"Failed: start should fire after sustained, got {executed}"
-    print("  ✓ Sustained noise with chatter: start fires")
-
-    print()
-
-def test_debounce_start_stop_normal_cycle():
-    print("Testing debounce start/stop normal full cycle...")
-
-    executed = []
-    test_config = {
-        "whistle:db_100": ("start", lambda: executed.append("start")),
-        "whistle_stop:db_100": ("stop", lambda: executed.append("stop")),
-    }
-
-    input_map = InputMap()
-    input_map.setup(test_config)
-
-    # Sustained start
-    input_map.execute("whistle")
-    actions.sleep("200ms")
-    assert executed == ["start"], f"Failed: start should fire, got {executed}"
-
-    # Then stop after start confirmed
-    input_map.execute("whistle_stop")
-    actions.sleep("200ms")
-    assert executed == ["start", "stop"], f"Failed: stop should fire, got {executed}"
-    print("  ✓ Normal cycle: both start and stop fire")
-
-    print()
-
-def test_debounce_stop_fires_cancels_pending_start():
-    print("Testing debounce stop fires first cancels pending start...")
-
-    executed = []
-    test_config = {
-        "whistle:db_200": ("start", lambda: executed.append("start")),
-        "whistle_stop:db_100": ("stop", lambda: executed.append("stop")),
-    }
-
-    input_map = InputMap()
-    input_map.setup(test_config)
-
-    # Start has longer debounce than stop
-    input_map.execute("whistle")        # start db begins (200ms)
-    input_map.execute("whistle_stop")   # stop db begins (100ms)
-
-    # Stop debounce fires first at 100ms - start still pending, cancel both
-    actions.sleep("200ms")
-    assert executed == [], f"Failed: stop should cancel pending start, got {executed}"
-
-    # Start debounce would fire at 200ms - but was already cancelled
-    actions.sleep("200ms")
-    assert executed == [], f"Failed: start should have been cancelled, got {executed}"
-    print("  ✓ Stop fires first: cancels pending start, neither fires")
-
-    print()
-
-def test_debounce_start_only_no_counterpart():
-    print("Testing debounce start only (no stop debounce) unchanged...")
-
-    executed = []
-    test_config = {
-        "whistle:db_100": ("start", lambda: executed.append("start")),
-        "whistle_stop": ("stop", lambda: executed.append("stop")),
-    }
-
-    input_map = InputMap()
-    input_map.setup(test_config)
-
-    # Start with debounce, stop without - should work as before
-    input_map.execute("whistle")
-    actions.sleep("200ms")
-    assert executed == ["start"], f"Failed: start should fire, got {executed}"
-
-    # Stop fires immediately (no debounce)
-    input_map.execute("whistle_stop")
-    assert executed == ["start", "stop"], f"Failed: stop should fire immediately, got {executed}"
-    print("  ✓ Start-only debounce unchanged (no counterpart interference)")
+    input_map.execute("cluck")
+    assert executed == ["cluck"], f"Failed: rest of the map should work, got {executed}"
+    print("  ✓ The rest of the map still loads")
 
     print()
 
@@ -2106,7 +1999,7 @@ def test_edge_debounce_delays_transition():
     print("  ✓ Transition delayed")
 
     # After debounce, should fire
-    actions.sleep("60ms")
+    actions.sleep("100ms")
     assert executed == ["left"], f"Failed: got {executed}"
     print("  ✓ Fires after debounce window")
 
@@ -2230,6 +2123,29 @@ def test_edge_debounce_mode_switch_cancels():
 
     print()
 
+def test_legend_multiple_cases():
+    print("Testing legend keeps each case for a shared base...")
+
+    legend = build_legend({
+        "pop": ("click", lambda: None),
+        "hiss:th_100": ("scroll", lambda: None),
+        "hiss_stop": ("stop", lambda: None),
+        "left_up:dur<300": ("tap", lambda: None),
+        "left_up:dur>=300": ("hold", lambda: None),
+        "cluck": ("", lambda: None),
+    })
+
+    assert legend == {
+        "pop": "click",
+        "hiss": "scroll",
+        "hiss stop": "stop",
+        "left up < 300": "tap",
+        "left up >= 300": "hold",
+    }, f"Failed: got {legend}"
+    print("  ✓ dur cases get their own rows, lone bases stay bare")
+
+    print()
+
 def test_dur_up_creates_base_pairs():
     print("Testing dur _up creates base_pairs...")
 
@@ -2350,141 +2266,379 @@ def test_dur_context_param_injection():
 
     print()
 
-def test_input_map_after_basic():
-    print("Testing InputMap after modifier basic...")
+def test_init_parse():
+    print("Testing ':init' parsing...")
 
-    executed = []
-    test_config = {
-        "pop": ("pop action", lambda: executed.append("pop")),
-        "pop:after_100": ("after action", lambda: executed.append("after")),
-    }
+    assert parse_condition("init") == ("mode_age", "<", 300.0), parse_condition("init")
+    assert parse_condition("init_150") == ("mode_age", "<", 150.0), parse_condition("init_150")
+    assert parse_condition("initial") is None, "'initial' should not parse as init"
+    assert parse_condition("init_") is None, "'init_' should not parse as init"
+    print("  ✓ init / init_N desugar to mode_age")
 
-    input_map = InputMap()
-    input_map.setup(test_config)
+    assert has_conditions("pop:init") is True
+    assert has_conditions("pop:init_150") is True
+    print("  ✓ init counts as a condition")
 
-    input_map.execute("pop")
-    assert executed == ["pop"], f"Failed: got {executed}"
-    print("  ✓ Immediate action fires")
-
-    actions.sleep("150ms")
-    assert executed == ["pop", "after"], f"Failed: after didn't fire, got {executed}"
-    print("  ✓ After action fires after delay")
+    cleaned, conditions = extract_conditions("pop:init:db_100")
+    assert cleaned == "pop:db_100", f"Failed: got {cleaned}"
+    assert conditions == [("mode_age", "<", 300.0)], f"Failed: got {conditions}"
+    print("  ✓ init strips from the key and composes with debounce")
 
     print()
 
-def test_input_map_after_cancelled_by_combo():
-    print("Testing InputMap after cancelled by combo...")
+def test_init_basic():
+    print("Testing ':init' window...")
 
     executed = []
     test_config = {
-        "pop:now": ("pop now", lambda: executed.append("pop")),
-        "pop:after_100": ("after action", lambda: executed.append("after")),
-        "pop pop": ("double pop", lambda: executed.append("double")),
+        "pop:init": ("gateway", lambda: executed.append("gateway")),
+        "pop": ("normal", lambda: executed.append("normal")),
     }
 
     input_map = InputMap()
     input_map.setup(test_config)
 
     input_map.execute("pop")
-    assert executed == ["pop"], f"Failed: got {executed}"
+    assert executed == ["gateway"], f"Failed: got {executed}"
+    print("  ✓ Inside the window takes the init binding")
 
-    # Second pop within combo window cancels the after
-    actions.sleep("50ms")
-    input_map.execute("pop")
-    assert "double" in executed, f"Failed: double pop didn't fire, got {executed}"
-
-    # Wait past after delay — should NOT fire
-    actions.sleep("150ms")
-    assert "after" not in executed, f"Failed: after fired despite combo, got {executed}"
-    print("  ✓ After cancelled when combo fires")
-
-    print()
-
-def test_input_map_after_with_now():
-    print("Testing InputMap after with :now modifier full scenario...")
-
-    executed = []
-    test_config = {
-        "pop:now": ("jump start", lambda: executed.append("jump_start")),
-        "pop:after_100": ("short hop", lambda: executed.append("short_hop")),
-        "pop pop": ("full jump", lambda: executed.append("full_jump")),
-    }
-
-    input_map = InputMap()
-    input_map.setup(test_config)
-
-    # Single pop → short hop
-    input_map.execute("pop")
-    assert executed == ["jump_start"], f"Failed: got {executed}"
-
-    actions.sleep("150ms")
-    assert executed == ["jump_start", "short_hop"], f"Failed: got {executed}"
-    print("  ✓ Single pop: immediate + after fires (short hop)")
-
-    # Double pop → full jump, no short hop
     executed.clear()
-    actions.sleep("350ms")  # wait for combo window to clear
+    actions.sleep("350ms")
     input_map.execute("pop")
-    assert executed == ["jump_start"], f"Failed: got {executed}"
-
-    actions.sleep("50ms")
-    input_map.execute("pop")
-    assert "full_jump" in executed, f"Failed: got {executed}"
-
-    actions.sleep("150ms")
-    assert "short_hop" not in executed, f"Failed: short_hop fired despite combo, got {executed}"
-    print("  ✓ Double pop: after cancelled, full jump fires")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Past the window falls through to the plain key")
 
     print()
 
-def test_input_map_after_cancels_combo_timeout():
-    print("Testing InputMap after cancels combo timeout...")
+def test_init_explicit_window():
+    print("Testing ':init_N' explicit window...")
 
     executed = []
     test_config = {
-        "pop:now": ("pop now", lambda: executed.append("pop_now")),
-        "pop:after_100": ("after", lambda: executed.append("after")),
-        "pop pop": ("double", lambda: executed.append("double")),
+        "pop:init_150": ("gateway", lambda: executed.append("gateway")),
+        "pop": ("normal", lambda: executed.append("normal")),
+    }
+
+    input_map = InputMap()
+    input_map.setup(test_config)
+
+    actions.sleep("50ms")
+    input_map.execute("pop")
+    assert executed == ["gateway"], f"Failed: got {executed}"
+
+    executed.clear()
+    actions.sleep("150ms")
+    input_map.execute("pop")
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Per-key window is honored")
+
+    print()
+
+def test_init_no_binding_no_clock():
+    print("Testing ':init' gating...")
+
+    input_map = InputMap()
+    input_map.setup({"pop": ("normal", lambda: None)})
+    assert input_map.has_mode_age is False, "has_mode_age should be off without ':init'"
+
+    input_map.setup({"pop:init": ("gateway", lambda: None), "pop": ("normal", lambda: None)})
+    assert input_map.has_mode_age is True, "has_mode_age should be on with ':init'"
+    print("  ✓ mode_age is only computed for maps that use it")
+
+    print()
+
+def test_init_restamps_on_mode_change():
+    print("Testing ':init' restamps on mode change...")
+
+    executed = []
+    test_config = {
+        "a": {
+            "pop:init": ("a gateway", lambda: executed.append("a_gateway")),
+            "pop": ("a normal", lambda: executed.append("a_normal")),
+        },
+        "b": {
+            "pop": ("b normal", lambda: executed.append("b_normal")),
+        },
     }
 
     input_map = InputMap()
     input_map.setup(test_config)
 
     input_map.execute("pop")
-    assert executed == ["pop_now"], f"Failed: got {executed}"
+    assert executed == ["a_gateway"], f"Failed: got {executed}"
 
-    # Wait for after to fire (100ms) but before combo window (300ms)
-    actions.sleep("150ms")
-    assert "after" in executed, f"Failed: after didn't fire, got {executed}"
+    executed.clear()
+    actions.sleep("350ms")
+    input_map.execute("pop")
+    assert executed == ["a_normal"], f"Failed: got {executed}"
+    print("  ✓ Window shuts while the mode stays put")
 
-    # The combo timeout should have been cancelled by the after firing
-    assert input_map.combo_job is None, f"Failed: combo_job not cancelled"
-    assert input_map.combo_chain == "", f"Failed: combo_chain not cleared"
-    print("  ✓ After firing cancels pending combo timeout")
+    # Re-entry serves mode 'a' from _mode_cache, where has_mode_age was missing.
+    executed.clear()
+    input_map.setup_mode("b")
+    input_map.setup_mode("a")
+    input_map.execute("pop")
+    assert executed == ["a_gateway"], f"Failed: got {executed}"
+    print("  ✓ Re-entering the mode reopens the window (cached path)")
 
     print()
 
-def test_input_map_after_reschedule():
-    print("Testing InputMap after reschedule on rapid re-trigger...")
+def test_init_same_mode_does_not_restamp():
+    print("Testing ':init' ignores a no-op mode set...")
 
     executed = []
     test_config = {
-        "pop": ("pop", lambda: executed.append("pop")),
-        "pop:after_100": ("after", lambda: executed.append("after")),
+        "a": {
+            "pop:init": ("gateway", lambda: executed.append("gateway")),
+            "pop": ("normal", lambda: executed.append("normal")),
+        },
+        "b": {"pop": ("b", lambda: executed.append("b"))},
     }
 
     input_map = InputMap()
     input_map.setup(test_config)
+    input_map.setup_mode("a")
 
+    actions.sleep("350ms")
+    input_map.setup_mode("a")
     input_map.execute("pop")
-    actions.sleep("50ms")
-    input_map.execute("pop")  # re-trigger reschedules the after
+    assert executed == ["normal"], f"Failed: got {executed}"
+    print("  ✓ Setting the mode it is already in does not reopen the window")
 
-    # At 150ms from second pop, the rescheduled after should fire
-    # But only one after total (the first was cancelled by reschedule)
-    actions.sleep("150ms")
-    assert executed.count("after") == 1, f"Failed: expected 1 after, got {executed}"
-    print("  ✓ Rapid re-trigger reschedules after (doesn't queue)")
+    print()
+
+def test_init_rejects_else():
+    print("Testing ':init' rejects an else branch...")
+
+    executed = []
+    test_config = {
+        "pop:init": ("gateway", lambda: None),
+        "pop:else": ("normal", lambda: None),
+        "cluck": ("cluck", lambda: executed.append("cluck")),
+    }
+
+    input_map, printed = _load(test_config)
+    _assert_bad(printed, "pop:else", "init")
+    input_map.execute("cluck")
+    assert executed == ["cluck"], f"Failed: rest of the map should work, got {executed}"
+    print("  ✓ init with else prints an error, the rest loads")
+
+    print()
+
+def test_legend_hud_shapes():
+    print("Testing legend rendering per modifier kind...")
+
+    # (name, keys, expected display rows in order)
+    cases = [
+        ("lone base",
+         ["pop"],
+         ["pop"]),
+        ("underscored base",
+         ["left_up"],
+         ["left up"]),
+        ("throttle and debounce hidden",
+         ["hiss:th_90", "hiss_stop:db_100"],
+         ["hiss", "hiss stop"]),
+        ("bare throttle hidden",
+         ["hiss:th", "hiss_stop:db"],
+         ["hiss", "hiss stop"]),
+        ("dur pair drops the variable",
+         ["left_up:dur<300", "left_up:dur>=300", "pop"],
+         ["left up < 300", "left up >= 300", "pop"]),
+        ("three dur branches",
+         ["hiss_stop:dur<200", "hiss_stop:dur<600", "hiss_stop:dur>=600"],
+         ["hiss stop < 200", "hiss stop < 600", "hiss stop >= 600"]),
+        ("lone dur needs no modifier",
+         ["left_up:dur<300", "pop"],
+         ["left up", "pop"]),
+        ("init",
+         ["hiss:init", "hiss"],
+         ["hiss init", "hiss"]),
+        ("init keeps an explicit window",
+         ["hiss:init_150", "hiss"],
+         ["hiss init 150", "hiss"]),
+        ("init composed with throttle",
+         ["hiss:init:th_90", "hiss:th_90"],
+         ["hiss init", "hiss"]),
+        ("power branches drop the variable",
+         ["pop:power>10", "pop:power<=10"],
+         ["pop > 10", "pop <= 10"]),
+        ("mixed variables keep both names",
+         ["pop:power>10", "pop:f0<100"],
+         ["pop power > 10", "pop f0 < 100"]),
+        ("negative and fractional values",
+         ["gaze:x<-0.5", "gaze:x>0.5", "gaze:else"],
+         ["gaze < -0.5", "gaze > 0.5", "gaze else"]),
+        ("now hidden",
+         ["pop:now", "pop pop"],
+         ["pop", "pop pop"]),
+        ("compose condition with throttle",
+         ["pop:power>10:th_100", "pop"],
+         ["pop > 10", "pop"]),
+        ("combos are their own base",
+         ["pop", "pop pop", "tut pop"],
+         ["pop", "pop pop", "tut pop"]),
+        ("cross-input chord untouched",
+         ["pedal + pop", "pop"],
+         ["pedal + pop", "pop"]),
+        ("variable pattern untouched",
+         ["tut $noise", "pop"],
+         ["tut $noise", "pop"]),
+    ]
+
+    for name, keys, expected in cases:
+        commands = {key: (f"label {i}", lambda: None) for i, key in enumerate(keys)}
+        legend = build_legend(commands)
+        assert list(legend.keys()) == expected, f"Failed [{name}]: got {list(legend.keys())}"
+        assert list(legend.values()) == [f"label {i}" for i in range(len(keys))], \
+            f"Failed [{name}]: labels got reordered or dropped: {legend}"
+        print(f"  ✓ {name}: {'  |  '.join(expected)}")
+
+    print()
+
+def test_legend_filters_empty_labels():
+    print("Testing legend filters empty labels...")
+
+    legend = build_legend({
+        "pop": ("click", lambda: None),
+        "cluck": ("", lambda: None),
+        "sh_stop": ("", lambda: None),
+        "hiss": "bare string label",
+        "empty_tuple": (),
+    })
+    assert legend == {
+        "pop": "click",
+        "hiss": "bare string label",
+    }, f"Failed: got {legend}"
+    print("  ✓ Empty labels and empty tuples drop out; a bare string is a label")
+
+    # An empty label still hides the row, but it must not make its sibling
+    # look like a lone binding and lose the modifier that separates them.
+    legend = build_legend({
+        "left_up:dur<300": ("tap", lambda: None),
+        "left_up:dur>=300": ("", lambda: None),
+    })
+    assert legend == {"left up": "tap"}, f"Failed: got {legend}"
+    print("  ✓ A hidden sibling leaves the visible row bare")
+
+    print()
+
+def test_legend_real_world_map_unchanged():
+    print("Testing legend on a real-world map...")
+
+    # Shape taken from talon-game-celeste-parrot, the only consumer in the wild.
+    # These rows must read the same as they did before the legend was unified.
+    legend = build_legend({
+        "sh:th_90":   ("jump 1", lambda: None),
+        "sh_stop":    ("", lambda: None),
+        "ss":         ("jump 2", lambda: None),
+        "ss_stop":    ("", lambda: None),
+        "ah":         ("left", lambda: None),
+        "oh":         ("right", lambda: None),
+        "pop":        ("dash f", lambda: None),
+        "mm:th_90":   ("dash f down", lambda: None),
+        "tut tut":    ("exit mode", lambda: None),
+        "tut pop":    ("dash b", lambda: None),
+        "cluck cluck": ("save", lambda: None),
+    })
+    assert legend == {
+        "sh": "jump 1",
+        "ss": "jump 2",
+        "ah": "left",
+        "oh": "right",
+        "pop": "dash f",
+        "mm": "dash f down",
+        "tut tut": "exit mode",
+        "tut pop": "dash b",
+        "cluck cluck": "save",
+    }, f"Failed: got {legend}"
+    print("  ✓ No colons, no underscores, one row per sound")
+
+    print()
+
+def test_init_chord_arms_clock():
+    print("Testing held-side ':init' arms the clock...")
+
+    input_map = InputMap()
+    input_map.setup({
+        "pedal_up": ("release", lambda: None),
+        "pedal:init + pop": ("gated", lambda: None),
+        "pop": ("plain", lambda: None),
+    })
+    assert input_map.has_mode_age is True, \
+        "has_mode_age should be on for a held-side ':init'"
+    print("  ✓ 'pedal:init + pop' is not a dead binding")
+
+    print()
+
+def test_init_chord_edge_triggered_rejected():
+    print("Testing held-side ':init' rejects an edge-triggered base...")
+
+    executed = []
+    input_map, printed = _load({
+        "gaze:x<0.5": ("region", lambda: None),
+        "gaze:else": ("off", lambda: None),
+        "gaze:init + pop": ("gated", lambda: None),
+        "pop": ("plain", lambda: executed.append("plain")),
+    })
+    _assert_bad(printed, "gaze:init + pop", "init")
+    input_map.execute("pop")
+    assert executed == ["plain"], f"Failed: rest of the map should work, got {executed}"
+    print("  ✓ Region matching cannot hold mode_age, so it prints an error and the rest loads")
+
+    print()
+
+def test_parse_key():
+    print("Testing parse_key...")
+
+    got = parse_key("pop:power>10:th", init_window_ms=500)
+    assert got["base"] == "pop" and got["inputs"] == ["pop"], got
+    assert got["chord"] is None and got["release_suffix"] == "", got
+    assert got["modifiers"][0] == {"id": "condition", "text": "power>10",
+                                  "value": ["power", ">", 10.0]}, got["modifiers"][0]
+    assert got["modifiers"][1] == {"id": "th", "text": "th", "value": None, "ms": 100}, got["modifiers"][1]
+    print("  ✓ condition and bare throttle")
+
+    got = parse_key("left_up:dur<300")
+    assert got["release_suffix"] == "_up" and got["release_of"] == "left", got
+    assert got["modifiers"][0]["value"] == ["dur", "<", 300.0], got
+    print("  ✓ _up is a release key, dur a condition")
+
+    got = parse_key("pop:init", init_window_ms=500)
+    assert got["modifiers"][0]["ms"] == 500, got
+    got = parse_key("pop:init_150:now:else:huh")
+    assert [s["id"] for s in got["modifiers"]] == ["init", "now", "else", ""], got
+    assert got["modifiers"][0]["ms"] == 150, got
+    print("  ✓ init window, flags, unknown modifier")
+
+    got = parse_key("gaze:x<500 + pop pop:th_90")
+    assert got["inputs"] == ["pop", "pop"] and got["modifiers"][0]["ms"] == 90, got
+    assert got["chord"]["base"] == "gaze", got
+    assert got["chord"]["modifiers"][0]["value"] == ["x", "<", 500.0], got
+    print("  ✓ held side parsed on its own")
+
+    got = parse_key("hiss_stop")
+    assert got["release_suffix"] == "_stop" and got["release_of"] == "hiss", got
+    assert parse_key("hiss_stop hiss")["release_suffix"] == "", "a combo is not a release key"
+    print("  ✓ _stop, and not on a combo")
+
+    print()
+
+def test_types_match_parser():
+    print("Testing input_map_types against the parser...")
+    from .input_map_types import types
+    got = types()
+    ids = {name: [v["id"] for v in s["values"]] for name, s in got.items()}
+    assert set(ids["condition_variable"]) == CONTEXT_KEYS, ids["condition_variable"]
+    for seg in got["modifier"]["values"]:
+        assert seg["desc"] and seg["pattern"], seg
+    for sample, seg_id in (("th_5", "th"), ("db", "db"), ("now", "now"),
+                           ("init", "init"), ("f0>=2", "condition"), ("else", "else")):
+        assert parse_modifier(sample)["id"] == seg_id, (sample, parse_modifier(sample))
+    assert all(s["desc"] for s in got.values()), "every set is described"
+    titles = {v["id"]: v.get("title") for v in got["modifier"]["values"] + got["condition_variable"]["values"]}
+    assert titles["th"] == "throttle" and titles["db"] == "debounce" and titles["dur"] == "duration", titles
+    print("  ✓ sets come from the parser's tables")
 
     print()
 
@@ -2584,28 +2738,20 @@ def run_tests():
     test_handle_bool_channel()
     test_handle_bool_single()
 
-    # Cross-input modifier tests (unit)
-    test_has_modifier()
-    test_extract_modifier()
-    test_validate_modifier()
+    # Cross-input chord tests (unit)
+    test_has_chord()
+    test_extract_chord()
+    test_validate_chord()
 
-    # Cross-input modifier tests (integration)
-    test_modifier_held_basic()
-    test_modifier_edge_triggered()
-    test_modifier_release_resets_held()
-    test_modifier_with_combo_activator()
-    test_modifier_mode_switch_resets()
-    test_modifier_has_modifiers_false()
-    test_modifier_fallthrough()
-    test_modifier_conditional()
-    test_modifier_parse_validation_error()
-
-    # Start/stop debounce pairing tests
-    test_debounce_start_stop_brief_noise()
-    test_debounce_start_stop_sustained_noise()
-    test_debounce_start_stop_normal_cycle()
-    test_debounce_stop_fires_cancels_pending_start()
-    test_debounce_start_only_no_counterpart()
+    # Cross-input chord tests (integration)
+    test_chord_held_basic()
+    test_chord_edge_triggered()
+    test_chord_release_resets_held()
+    test_chord_with_combo_activator()
+    test_chord_mode_switch_resets()
+    test_chord_has_chords_false()
+    test_chord_fallthrough()
+    test_chord_conditional()
 
     # Edge debounce tests
     test_edge_debounce_delays_transition()
@@ -2615,20 +2761,942 @@ def run_tests():
     test_edge_debounce_mode_switch_cancels()
 
     # Duration (dur) tests
+    test_legend_multiple_cases()
     test_dur_up_creates_base_pairs()
     test_dur_basic_up()
     test_dur_basic_stop()
     test_dur_none_for_non_pair()
     test_dur_context_param_injection()
 
-    # After modifier tests
-    test_input_map_after_basic()
-    test_input_map_after_cancelled_by_combo()
-    test_input_map_after_with_now()
-    test_input_map_after_cancels_combo_timeout()
-    test_input_map_after_reschedule()
+    # Legend tests
+    test_legend_hud_shapes()
+    test_legend_filters_empty_labels()
+    test_legend_real_world_map_unchanged()
+
+    # Mode init window (':init') tests
+    test_init_parse()
+    test_init_basic()
+    test_init_explicit_window()
+    test_init_no_binding_no_clock()
+    test_init_restamps_on_mode_change()
+    test_init_same_mode_does_not_restamp()
+    test_init_chord_arms_clock()
+
+    # Key parsing and types
+    test_parse_key()
+    test_types_match_parser()
+
+    failed = run_key_behavior_tests()
+    bench()
 
     print()
     print("=" * 50)
-    print("All tests passed!")
+    print(f"{len(failed)} key behavior tests failing" if failed else "All tests passed!")
     print("=" * 50)
+
+# Key behavior (1.3.0)
+#
+# One test per decision in the workspace note input-map-key-behavior.md.
+# Written before the fix, so some fail until it lands. run_key_behavior_tests()
+# reports every test instead of stopping at the first failure.
+
+# Ground rules
+
+def test_key_bad_key_skips_only_itself():
+    print("Testing a bad key skips only itself...")
+
+    executed = []
+    input_map, printed = _load({
+        "pop": ("click", lambda: executed.append("pop")),
+        "cluck:foo": ("bad", lambda: executed.append("cluck")),
+    })
+    _assert_bad(printed, "cluck:foo", "foo", "now")
+    print("  ✓ Error names the key, the unknown modifier, and the valid ones")
+
+    input_map.execute("pop")
+    input_map.execute("cluck")
+    assert executed == ["pop"], f"Failed: got {executed}"
+    print("  ✓ The good key fires, the bad key doesn't")
+
+    print()
+
+def test_key_modifier_order():
+    print("Testing modifier order doesn't matter...")
+
+    for key in ("pop:th_200:power>10", "pop:power>10:th_200"):
+        executed = []
+        input_map, printed = _load({key: ("loud", lambda: executed.append("loud"))})
+        _assert_clean(printed)
+        input_map.execute("pop", power=20.0)
+        input_map.execute("pop", power=20.0)
+        assert executed == ["loud"], f"Failed: {key} got {executed}"
+    print("  ✓ Both orders throttle the condition the same way")
+
+    a = parse_key("pop:th_200:power>10")
+    b = parse_key("pop:power>10:th_200")
+    assert sorted(s["text"] for s in a["modifiers"]) == sorted(s["text"] for s in b["modifiers"]), (a, b)
+    print("  ✓ key_parse reads the same modifiers")
+
+    print()
+
+def test_key_repeated_modifier():
+    print("Testing the same modifier twice is a bad key...")
+
+    _, printed = _load({"pop:th:th_90": ("x", lambda: None)})
+    _assert_bad(printed, "pop:th:th_90")
+    _, printed = _load({
+        "hiss": ("start", lambda: None),
+        "hiss_stop:db_50:db_100": ("x", lambda: None),
+    })
+    _assert_bad(printed, "hiss_stop:db_50:db_100")
+    print("  ✓ Repeated th and db print errors")
+
+    print()
+
+def test_key_condition_range():
+    print("Testing two conditions on one variable form a range...")
+
+    executed = []
+    input_map, printed = _load({"pop:power>10:power<50": ("mid", lambda: executed.append("mid"))})
+    _assert_clean(printed)
+    for power in (30.0, 5.0, 60.0):
+        input_map.execute("pop", power=power)
+    assert executed == ["mid"], f"Failed: got {executed}"
+    print("  ✓ Fires at 30, not at 5 or 60")
+
+    _, printed = _load({"pop:power>50:power<10": ("never", lambda: None)})
+    _assert_bad(printed, "pop:power>50:power<10")
+    print("  ✓ A range that can never match is a bad key")
+
+    print()
+
+def test_key_release_suffixes_reserved():
+    print("Testing _up and _stop always mean a release...")
+
+    executed = []
+    input_map, printed = _load({
+        "left": ("press", lambda: executed.append("press")),
+        "left_up:dur<300": ("tap", lambda: executed.append("tap")),
+        "left_up:dur>=300": ("hold", lambda: executed.append("hold")),
+    })
+    _assert_clean(printed)
+    input_map.execute("left")
+    actions.sleep("50ms")
+    input_map.execute("left_up")
+    assert executed == ["press", "tap"], f"Failed: got {executed}"
+    print("  ✓ Press, then exactly one release")
+
+    assert parse_key("dpad_up")["release_of"] == "dpad", parse_key("dpad_up")
+    print("  ✓ dpad_up reads as the release of dpad (known limitation)")
+
+    print()
+
+# Releases
+
+def test_key_release_only_mapped():
+    print("Testing a release fires when only the release is mapped...")
+
+    executed = []
+    input_map, printed = _load({"left_stop": ("release", lambda: executed.append("release"))})
+    _assert_clean(printed)
+    input_map.execute("left")
+    input_map.execute("left_stop")
+    assert executed == ["release"], f"Failed: got {executed}"
+    print("  ✓ left_stop fires")
+
+    for suffix in ("_stop", "_up"):
+        executed = []
+        input_map, printed = _load({
+            f"left{suffix}:dur<300": ("tap", lambda: executed.append("tap")),
+            f"left{suffix}:dur>=300": ("hold", lambda: executed.append("hold")),
+        })
+        _assert_clean(printed)
+        input_map.execute("left")
+        actions.sleep("100ms")
+        input_map.execute(f"left{suffix}")
+        assert executed == ["tap"], f"Failed: {suffix} got {executed}"
+    print("  ✓ Picks tap vs hold by hold time, with _stop and _up")
+
+    print()
+
+def test_key_combo_hold_back():
+    print("Testing the 90ms hold-back after a combo ending in a continuous noise...")
+
+    executed = []
+    input_map, printed = _load({
+        "pop hiss": ("combo", lambda: executed.append("combo")),
+        "hiss:th_90": ("scroll", lambda: executed.append("scroll")),
+        "hiss_stop": ("stop", lambda: None),
+    })
+    _assert_clean(printed)
+    input_map.execute("pop")
+    input_map.execute("hiss")
+    assert executed == ["combo"], f"Failed: got {executed}"
+    input_map.execute("hiss")
+    assert executed == ["combo"], f"Failed: hiss inside 90ms should be held back, got {executed}"
+    print("  ✓ hiss right after the combo doesn't fire")
+
+    actions.sleep("120ms")
+    input_map.execute("hiss")
+    assert executed == ["combo", "scroll"], f"Failed: got {executed}"
+    print("  ✓ hiss after 90ms fires")
+
+    print()
+
+def test_key_throttle_on_release():
+    print("Testing th on a release is a bad key...")
+
+    _, printed = _load({"hiss": ("start", lambda: None), "hiss_stop:th_200": ("x", lambda: None)})
+    _assert_bad(printed, "hiss_stop:th_200", "hiss_stop:db_200")
+    _, printed = _load({"left": ("press", lambda: None), "left_up:th": ("x", lambda: None)})
+    _assert_bad(printed, "left_up:th", "left_up:db")
+    print("  ✓ Error points to db on the release")
+
+    print()
+
+def test_key_debounce_release_bridges_gaps():
+    print("Testing db on a release bridges gaps...")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss": ("start", lambda: executed.append("start")),
+        "hiss_stop:db_100": ("stop", lambda: executed.append("stop")),
+    })
+    _assert_clean(printed)
+    input_map.execute("hiss")
+    input_map.execute("hiss_stop")
+    actions.sleep("50ms")
+    input_map.execute("hiss")
+    actions.sleep("200ms")
+    assert executed == ["start"], f"Failed: got {executed}"
+    print("  ✓ hiss inside the wait neither stops nor fires again")
+
+    print()
+
+def test_key_debounce_misuse():
+    print("Testing db where it can't work points to what does...")
+
+    _, printed = _load({"hiss:db_100": ("x", lambda: None)})
+    _assert_bad(printed, "hiss:db_100", "stop", "hiss:dur>=100", "hiss_stop:db_100")
+    print("  ✓ db on a start points to dur>=N and to db on the stop")
+
+    _, printed = _load({"pop:db_100": ("x", lambda: None)})
+    _assert_bad(printed, "pop:db_100", "stop", "pop:th_100")
+    print("  ✓ db on a key with no stop points to th")
+
+    print()
+
+def test_key_after_removed():
+    print("Testing after is removed, with a pointer to what replaces it...")
+
+    executed = []
+    input_map, printed = _load({
+        "pop": ("click", lambda: executed.append("pop")),
+        "pop:after_200": ("hop", lambda: executed.append("after")),
+    })
+    _assert_bad(printed, "pop:after_200", "removed", "combo", "pop:now")
+    input_map.execute("pop")
+    actions.sleep("300ms")
+    assert executed == ["pop"], f"Failed: got {executed}"
+    print("  ✓ Error says removed, explains the combo wait and now; pop still works")
+
+    print()
+
+def test_key_dur_start():
+    print("Testing dur>=N on a start fires once held that long...")
+
+    executed = []
+    input_map, printed = _load({"hiss:dur>=100": ("held", lambda: executed.append("held"))})
+    _assert_clean(printed)
+    input_map.execute("hiss")
+    actions.sleep("50ms")
+    input_map.execute("hiss_stop")
+    actions.sleep("100ms")
+    assert executed == [], f"Failed: 50ms hiss should fire nothing, got {executed}"
+    print("  ✓ A 50ms hiss fires nothing")
+
+    input_map.execute("hiss")
+    actions.sleep("150ms")
+    assert executed == ["held"], f"Failed: got {executed}"
+    input_map.execute("hiss_stop")
+    print("  ✓ Fires at 100ms, before the release")
+
+    print()
+
+def test_key_dur_start_stages():
+    print("Testing dur>=N stages fire in one hold...")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss:dur>=100": ("short", lambda: executed.append("100")),
+        "hiss:dur>=600": ("long", lambda: executed.append("600")),
+    })
+    _assert_clean(printed)
+    input_map.execute("hiss")
+    actions.sleep("300ms")
+    assert executed == ["100"], f"Failed: got {executed}"
+    actions.sleep("400ms")
+    assert executed == ["100", "600"], f"Failed: got {executed}"
+    input_map.execute("hiss_stop")
+    print("  ✓ Both fire, in order")
+
+    print()
+
+def test_key_dur_start_upper_bound():
+    print("Testing dur<N on a start is a bad key...")
+
+    _, printed = _load({"hiss:dur<100": ("x", lambda: None)})
+    _assert_bad(printed, "hiss:dur<100", "hiss_stop:dur<100")
+    print("  ✓ Error points to the stop")
+
+    print()
+
+def test_key_dur_start_with_stop():
+    print("Testing a dur start with its stop...")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss:dur>=100": ("start", lambda: executed.append("start")),
+        "hiss_stop:db_100": ("stop", lambda: executed.append("stop")),
+    })
+    _assert_clean(printed)
+    input_map.execute("hiss")
+    actions.sleep("200ms")
+    assert executed == ["start"], f"Failed: got {executed}"
+    input_map.execute("hiss_stop")
+    actions.sleep("200ms")
+    assert executed == ["start", "stop"], f"Failed: got {executed}"
+    print("  ✓ Normal cycle: start then stop")
+
+    executed.clear()
+    input_map, printed = _load({
+        "hiss:dur>=100": ("start", lambda: executed.append("start")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    })
+    input_map.execute("hiss")
+    actions.sleep("50ms")
+    input_map.execute("hiss_stop")
+    actions.sleep("150ms")
+    assert executed == [], f"Failed: got {executed}"
+    print("  ✓ Early release: the start never fired, so the stop doesn't either")
+
+    print()
+
+def test_key_dur_start_impossible_stop():
+    print("Testing a dur stop that a dur start rules out...")
+
+    _, printed = _load({
+        "hiss:dur>=100": ("start", lambda: None),
+        "hiss_stop:dur<100": ("stop", lambda: None),
+    })
+    _assert_bad(printed, "hiss_stop:dur<100")
+    print("  ✓ Load error on the stop")
+
+    print()
+
+def test_key_dur_start_repeated_starts():
+    print("Testing repeated starts during one hold...")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss:dur>=100": ("start", lambda: executed.append("start")),
+        "hiss_stop:db_170": ("stop", lambda: executed.append("stop")),
+    })
+    _assert_clean(printed)
+    input_map.execute("hiss")         # t=0
+    actions.sleep("30ms")
+    input_map.execute("hiss")         # t=30, same hold
+    actions.sleep("30ms")
+    input_map.execute("hiss_stop")    # t=60, stop waits 170ms
+    actions.sleep("50ms")
+    input_map.execute("hiss")         # t=110, inside the wait: same hold
+    actions.sleep("90ms")
+    assert executed == ["start"], f"Failed: got {executed}"
+    print("  ✓ The start fires once, timed from the first hiss")
+
+    input_map.execute("hiss_stop")
+    actions.sleep("250ms")
+    assert executed == ["start", "stop"], f"Failed: got {executed}"
+    print("  ✓ The real stop fires")
+
+    print()
+
+def test_key_now_on_release():
+    print("Testing now on a release is a bad key...")
+
+    _, printed = _load({"hiss": ("start", lambda: None), "hiss_stop:now": ("x", lambda: None)})
+    _assert_bad(printed, "hiss_stop:now")
+    print("  ✓ Load error")
+
+    print()
+
+def test_key_init_on_release():
+    print("Testing init on a release follows the start that fired...")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss": ("start", lambda: executed.append("start")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+        "hiss:init_150": ("init", lambda: executed.append("init")),
+        "hiss_stop:init_150": ("init stop", lambda: executed.append("init_stop")),
+    })
+    _assert_clean(printed)
+    actions.sleep("50ms")
+    input_map.execute("hiss")
+    actions.sleep("300ms")
+    input_map.execute("hiss_stop")
+    assert executed == ["init", "init_stop"], f"Failed: got {executed}"
+    print("  ✓ The init stop fires after the window closed")
+
+    executed.clear()
+    input_map, printed = _load({
+        "hiss": ("start", lambda: executed.append("start")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+        "hiss:init_150": ("init", lambda: executed.append("init")),
+    })
+    _assert_clean(printed)
+    input_map.execute("hiss")
+    actions.sleep("300ms")
+    input_map.execute("hiss_stop")
+    assert executed == ["init"], f"Failed: got {executed}"
+    print("  ✓ With no init stop, the release fires nothing")
+
+    print()
+
+def test_key_parrot_condition_on_release():
+    print("Testing power on a release is a bad key...")
+
+    _, printed = _load({"hiss": ("start", lambda: None), "hiss_stop:power>10": ("x", lambda: None)})
+    _assert_bad(printed, "hiss_stop:power>10")
+    print("  ✓ Load error")
+
+    print()
+
+# Each modifier alone
+
+def test_key_throttle_zero():
+    print("Testing th_0 is a bad key...")
+
+    _, printed = _load({"pop:th_0": ("x", lambda: None)})
+    _assert_bad(printed, "pop:th_0")
+    print("  ✓ Load error")
+
+    print()
+
+def test_key_throttle_per_sound():
+    print("Testing one throttle per sound...")
+
+    _, printed = _load({
+        "pop:th_50": ("normal", lambda: None),
+        "pop:init:th_50": ("init", lambda: None),
+    })
+    _assert_clean(printed)
+    print("  ✓ The same value on two keys loads")
+
+    _, printed = _load({
+        "pop:th_50": ("normal", lambda: None),
+        "pop:init:th_200": ("init", lambda: None),
+    })
+    assert "pop:th_50" in printed or "pop:init:th_200" in printed, f"Failed: got:\n{printed}"
+    print("  ✓ Two values is a bad key")
+
+    executed = []
+    input_map, printed = _load({
+        "pop:power>10:th_200": ("loud", lambda: executed.append("loud")),
+        "pop:else": ("soft", lambda: executed.append("soft")),
+    })
+    _assert_clean(printed)
+    input_map.execute("pop", power=5.0)
+    input_map.execute("pop", power=5.0)
+    input_map.execute("pop", power=20.0)
+    actions.sleep("250ms")
+    input_map.execute("pop", power=5.0)
+    assert executed == ["soft", "soft"], f"Failed: got {executed}"
+    print("  ✓ The throttle covers every key of the sound, else included")
+
+    print()
+
+def test_key_now_alone():
+    print("Testing now with no combo to wait for...")
+
+    executed = []
+    input_map, printed = _load({"pop:now": ("click", lambda: executed.append("pop"))})
+    _assert_clean(printed)
+    input_map.execute("pop")
+    assert executed == ["pop"], f"Failed: got {executed}"
+    print("  ✓ Fires immediately")
+
+    print()
+
+def test_key_plain_with_conditions():
+    print("Testing a plain key is the fallback for conditioned keys...")
+
+    executed = []
+    input_map, printed = _load({
+        "pop": ("plain", lambda: executed.append("plain")),
+        "pop:power>10": ("loud", lambda: executed.append("loud")),
+    })
+    _assert_clean(printed)
+    for power in (20.0, 20.0, 5.0, 5.0):
+        input_map.execute("pop", power=power)
+    assert executed == ["loud", "loud", "plain", "plain"], f"Failed: got {executed}"
+    print("  ✓ Conditions first, the plain key catches the rest, every event")
+
+    executed = []
+    base = {"pop": ("plain", lambda: executed.append("plain"))}
+    input_map, printed = _load({**base, "pop:power>10": ("loud", lambda: executed.append("loud"))})
+    _assert_clean(printed)
+    input_map.execute("pop", power=5.0)
+    assert executed == ["plain"], f"Failed: got {executed}"
+    print("  ✓ A spread mode can add conditions over an inherited plain key")
+
+    executed = []
+    input_map, printed = _load({
+        "pop": ("plain", lambda: executed.append("plain")),
+        "pop:power>10": ("loud", lambda: executed.append("loud")),
+        "pop:else": ("soft", lambda: executed.append("soft")),
+    })
+    _assert_bad(printed, "'pop'", "pop:else")
+    input_map.execute("pop", power=5.0)
+    assert executed == ["soft"], f"Failed: got {executed}"
+    print("  ✓ Plain and else together is a bad key on the plain one")
+
+    for config in (
+        {"hiss": ("plain", lambda: None), "hiss:init": ("init", lambda: None)},
+        {"hiss": ("press", lambda: None), "hiss:dur>=300": ("held", lambda: None)},
+        {"hiss": ("start", lambda: None), "hiss_stop": ("stop", lambda: None), "hiss_stop:dur<300": ("tap", lambda: None)},
+    ):
+        _, printed = _load(config)
+        _assert_clean(printed)
+    print("  ✓ The same holds for init and dur")
+
+    executed = []
+    input_map, printed = _load({
+        "hiss": ("press", lambda: executed.append("press")),
+        "hiss:dur>=150": ("held", lambda: executed.append("held")),
+        "hiss_stop": ("stop", lambda: executed.append("stop")),
+    })
+    input_map.execute("hiss")
+    assert executed == ["press"], f"Failed: got {executed}"
+    actions.sleep("250ms")
+    input_map.execute("hiss_stop")
+    assert executed == ["press", "held", "stop"], f"Failed: got {executed}"
+    executed.clear()
+    input_map.execute("hiss")
+    actions.sleep("50ms")
+    input_map.execute("hiss_stop")
+    actions.sleep("200ms")
+    assert executed == ["press", "stop"], f"Failed: got {executed}"
+    print("  ✓ Plain hiss fires on press, the stage once held, the stop after either")
+
+    print()
+
+def test_key_else_per_event_for_parrot():
+    print("Testing else on parrot conditions fires every event...")
+
+    executed = []
+    input_map, printed = _load({
+        "pop:power>10": ("loud", lambda: executed.append("loud")),
+        "pop:else": ("soft", lambda: executed.append("soft")),
+    })
+    _assert_clean(printed)
+    for power in (20.0, 20.0, 5.0, 5.0):
+        input_map.execute("pop", power=power)
+    assert executed == ["loud", "loud", "soft", "soft"], f"Failed: got {executed}"
+    print("  ✓ Two loud pops fire twice, two soft pops fire else twice")
+
+    print()
+
+def test_key_else_edge_for_streams():
+    print("Testing else on x/y/value conditions fires once per change...")
+
+    executed = []
+    input_map, printed = _load({
+        "gaze:x<-0.5": ("left", lambda: executed.append("left")),
+        "gaze:else": ("neutral", lambda: executed.append("neutral")),
+    })
+    _assert_clean(printed)
+    for x in (0.0, 0.0, -1.0, -1.0, 0.0):
+        input_map.execute("gaze", x=x, y=0.0)
+    assert executed == ["neutral", "left", "neutral"], f"Failed: got {executed}"
+    print("  ✓ Repeated values in one region fire once")
+
+    print()
+
+def test_key_condition_kinds_mixed():
+    print("Testing parrot and stream conditions on one input is a bad key...")
+
+    _, printed = _load({
+        "pop:power>10": ("loud", lambda: None),
+        "pop:x<0": ("left", lambda: None),
+        "pop:else": ("other", lambda: None),
+    })
+    assert "pop:power>10" in printed or "pop:x<0" in printed, f"Failed: got:\n{printed}"
+    print("  ✓ Load error")
+
+    print()
+
+def test_key_condition_numbers():
+    print("Testing which numbers each condition variable takes...")
+
+    for config in (
+        {"gaze:x<-0.5": ("left", lambda: None), "gaze:else": ("off", lambda: None)},
+        {"dimple_left:value>0.5": ("on", lambda: None), "dimple_left:value<-0.1": ("neg", lambda: None)},
+    ):
+        _, printed = _load(config)
+        _assert_clean(printed)
+    print("  ✓ x, y, value take negative decimals")
+
+    for key in ("pop:power>-5", "pop:power>10.5"):
+        _, printed = _load({key: ("x", lambda: None)})
+        _assert_bad(printed, key)
+    print("  ✓ power takes whole numbers, not negative")
+
+    print()
+
+def test_key_else_needs_condition():
+    print("Testing else needs a condition on the same input...")
+
+    _, printed = _load({"pop:else": ("x", lambda: None)})
+    _assert_bad(printed, "pop:else", "condition")
+    _, printed = _load({"pop:power>10": ("loud", lambda: None), "pop:else": ("soft", lambda: None)})
+    _assert_clean(printed)
+    print("  ✓ Alone it's a bad key; with a condition it loads")
+
+    print()
+
+def test_key_init_with_condition():
+    print("Testing init and a condition on one key...")
+
+    executed = []
+    input_map, printed = _load({"pop:init_150:power>10": ("loud start", lambda: executed.append("hit"))})
+    _assert_clean(printed)
+    input_map.execute("pop", power=5.0)
+    input_map.execute("pop", power=20.0)
+    actions.sleep("200ms")
+    input_map.execute("pop", power=20.0)
+    assert executed == ["hit"], f"Failed: got {executed}"
+    print("  ✓ Only a loud pop inside the window fires")
+
+    print()
+
+def test_key_else_with_throttle():
+    print("Testing th on an else key is a bad key...")
+
+    _, printed = _load({
+        "pop:power>10": ("loud", lambda: None),
+        "pop:else:th_50": ("soft", lambda: None),
+    })
+    _assert_bad(printed, "pop:else:th_50", "pop:power>10:th_50")
+    print("  ✓ Error points to the conditioned key")
+
+    print()
+
+def test_key_experimental_flags():
+    print("Testing experimental modifiers are flagged in input_map_types...")
+    from .input_map_types import types
+
+    variables = {v["id"]: v for v in types()["condition_variable"]["values"]}
+    for var in ("f0", "f1", "f2"):
+        assert variables[var].get("experimental"), variables[var]
+    assert not variables["power"].get("experimental"), variables["power"]
+    print("  ✓ Pitch conditions are experimental, power isn't")
+
+    print()
+
+def test_key_later_key_replaces():
+    print("Testing a later key replaces one for the same input and conditions...")
+
+    executed = []
+    default_config = {
+        "mm:th_300": ("f-down", lambda: executed.append("mm default")),
+        "sh:th_90": ("jump", lambda: executed.append("sh default")),
+        "ss": ("jump 2", lambda: executed.append("ss default")),
+    }
+    move_config = {
+        **default_config,
+        "mm": ("f-down", lambda: executed.append("mm")),
+        "sh:th_300": ("jump", lambda: executed.append("sh")),
+        "ss:th_300": ("dash", lambda: executed.append("ss")),
+    }
+    input_map, printed = _load(move_config)
+    _assert_clean(printed)
+    input_map.execute("mm")
+    input_map.execute("mm")
+    input_map.execute("sh")
+    actions.sleep("150ms")
+    input_map.execute("sh")
+    input_map.execute("ss")
+    assert executed == ["mm", "mm", "sh", "ss"], f"Failed: got {executed}"
+    print("  ✓ Celeste-style spread: overrides load and win, with their own throttles")
+
+    executed = []
+    input_map, printed = _load({
+        "pop:power>10": ("first", lambda: executed.append("first")),
+        "pop:power>10:th_200": ("second", lambda: executed.append("second")),
+    })
+    _assert_clean(printed)
+    input_map.execute("pop", power=20.0)
+    input_map.execute("pop", power=20.0)
+    assert executed == ["second"], f"Failed: got {executed}"
+    print("  ✓ Same conditions: the later key replaces the earlier")
+
+    print()
+
+# Combos
+
+def test_key_modifiers_on_combos():
+    print("Testing modifiers on combos and variable keys are bad keys...")
+
+    _, printed = _load({"pop cluck:th": ("x", lambda: None)})
+    _assert_bad(printed, "pop cluck:th")
+    _, printed = _load({"tut $noise:th": ("x", lambda noise: None)})
+    _assert_bad(printed, "tut $noise:th")
+    print("  ✓ Load errors")
+
+    print()
+
+def test_key_conditioned_combo_prefix():
+    print("Testing a conditioned pop as a combo prefix...")
+
+    executed = []
+    input_map, printed = _load({
+        "pop:power>10": ("loud", lambda: executed.append("loud")),
+        "pop:else": ("soft", lambda: executed.append("soft")),
+        "pop cluck": ("combo", lambda: executed.append("combo")),
+    })
+    _assert_clean(printed)
+    input_map.execute("pop", power=5.0)
+    input_map.execute("cluck")
+    assert executed == ["combo"], f"Failed: got {executed}"
+    print("  ✓ Soft pop then cluck fires the combo")
+
+    input_map.execute("pop", power=20.0)
+    actions.sleep("350ms")
+    assert executed == ["combo", "loud"], f"Failed: got {executed}"
+    print("  ✓ Loud pop alone fires its condition after the combo window")
+
+    print()
+
+# Modes and channels: today's behavior, pinned
+
+def test_key_mode_switch_timers():
+    print("Testing timers across a mode switch...")
+
+    executed = []
+    input_map, printed = _load({
+        "default": {"pop:th_300": ("a", lambda: executed.append("a"))},
+        "b": {"pop:th_300": ("b", lambda: executed.append("b"))},
+    })
+    input_map.execute("pop")
+    input_map.setup_mode("b")
+    input_map.execute("pop")
+    assert executed == ["a"], f"Failed: got {executed}"
+    print("  ✓ A throttle survives the switch")
+
+    executed = []
+    input_map, printed = _load({
+        "default": {
+            "pop": ("a", lambda: executed.append("a")),
+            "pop pop": ("aa", lambda: executed.append("aa")),
+        },
+        "b": {"pop": ("b", lambda: executed.append("b"))},
+    })
+    input_map.execute("pop")
+    input_map.setup_mode("b")
+    actions.sleep("350ms")
+    assert executed == [], f"Failed: got {executed}"
+    print("  ✓ A pending combo is dropped")
+
+    executed = []
+    input_map, printed = _load({
+        "default": {
+            "hiss": ("start", lambda: executed.append("start")),
+            "hiss_stop:db_100": ("stop a", lambda: executed.append("stop_a")),
+        },
+        "b": {
+            "hiss": ("start b", lambda: executed.append("start_b")),
+            "hiss_stop": ("stop b", lambda: executed.append("stop_b")),
+        },
+    })
+    input_map.execute("hiss")
+    input_map.execute("hiss_stop")
+    input_map.setup_mode("b")
+    actions.sleep("200ms")
+    assert executed == ["start", "stop_a"], f"Failed: got {executed}"
+    print("  ✓ A pending debounced stop still fires the old mode's action")
+
+    print()
+
+def test_key_channel_timers():
+    print("Testing timers are per channel...")
+
+    executed = []
+    for name in ("test_key_a", "test_key_b"):
+        if name in _channels:
+            channel_unregister(name)
+        channel_register(name, {"pop:th_300": (name, lambda name=name: executed.append(name))})
+    channel_handle("test_key_a", "pop")
+    channel_handle("test_key_b", "pop")
+    assert executed == ["test_key_a", "test_key_b"], f"Failed: got {executed}"
+    print("  ✓ A throttle in one channel doesn't hold the other")
+    channel_unregister("test_key_a")
+    channel_unregister("test_key_b")
+
+    print()
+
+# What consumers ask before writing a key
+
+def test_key_parse_error():
+    print("Testing key_parse says why a key can't work...")
+
+    assert parse_key("pop:th_90")["error"] == "", parse_key("pop:th_90")
+    assert "dur>=100" in parse_key("hiss:db_100")["error"], parse_key("hiss:db_100")
+    assert "removed" in parse_key("pop:after_200")["error"], parse_key("pop:after_200")
+    assert parse_key("pedal + pop")["error"] == "", parse_key("pedal + pop")
+    print("  ✓ Same reasons the loader prints; chords checked at load")
+
+    print()
+
+def test_key_options():
+    print("Testing key_options lists what can go on a key...")
+    from .input_map_parse import key_options
+
+    got = key_options("pop")
+    assert got["modifiers"] == ["th", "now", "init", "condition", "else"], got
+    assert got["conditions"]["power"] == {"operators": [">", "<", ">=", "<=", "==", "!="], "whole": True}, got
+    assert got["conditions"]["x"]["whole"] is False, got
+    print("  ✓ A start: th, now, init, conditions, else")
+
+    got = key_options("hiss_stop")
+    assert got["modifiers"] == ["db", "init", "condition", "else"], got
+    assert "power" not in got["conditions"] and "dur" in got["conditions"], got
+    print("  ✓ A stop: db, no th or now, no parrot conditions")
+
+    got = key_options("hiss")
+    assert got["conditions"]["dur"]["operators"] == [">", ">="], got
+    print("  ✓ dur on a start takes lower bounds only")
+
+    assert key_options("pop:th_90")["modifiers"] == ["now", "init", "condition", "else"], key_options("pop:th_90")
+    assert "else" not in key_options("pop:power>10")["modifiers"], key_options("pop:power>10")
+    assert "<" in key_options("pop:power>10")["conditions"]["power"]["operators"], key_options("pop:power>10")
+    print("  ✓ What the key already has narrows it; a range stays open")
+
+    for key in ("pop cluck", "tut $noise", "pedal + pop", "pop:foo"):
+        assert key_options(key) == {"modifiers": [], "conditions": {}}, (key, key_options(key))
+    print("  ✓ Nothing for combos, variable keys, chords, bad keys")
+
+    print()
+
+def test_key_check():
+    print("Testing input_map_check reports a whole map without loading it...")
+    from .input_map_parse import check_commands
+
+    noop = ("", lambda: None)
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        _, reasons = check_commands({
+            "pop": noop, "pop:power>10": noop, "pop:else": noop,
+            "hiss:db_100": noop,
+            "cluck": noop,
+        })
+    assert printed.getvalue() == "", printed.getvalue()
+    assert set(reasons) == {"pop", "hiss:db_100"}, reasons
+    assert "pop:else" in reasons["pop"], reasons
+    print("  ✓ Map rules and key rules, nothing printed")
+
+    print()
+
+def run_key_behavior_tests():
+    """Run every key behavior test, reporting each failure without stopping. Returns the failures."""
+    print("=" * 50)
+    print("Key behavior (1.3.0)")
+    print("=" * 50)
+    print()
+
+    tests = [
+        test_key_bad_key_skips_only_itself,
+        test_chord_parse_validation_error,
+        test_init_rejects_else,
+        test_init_chord_edge_triggered_rejected,
+        test_key_modifier_order,
+        test_key_repeated_modifier,
+        test_key_condition_range,
+        test_key_release_suffixes_reserved,
+        test_key_release_only_mapped,
+        test_key_combo_hold_back,
+        test_key_throttle_on_release,
+        test_key_debounce_release_bridges_gaps,
+        test_key_debounce_misuse,
+        test_key_after_removed,
+        test_key_dur_start,
+        test_key_dur_start_stages,
+        test_key_dur_start_upper_bound,
+        test_key_dur_start_with_stop,
+        test_key_dur_start_impossible_stop,
+        test_key_dur_start_repeated_starts,
+        test_key_now_on_release,
+        test_key_init_on_release,
+        test_key_parrot_condition_on_release,
+        test_key_throttle_zero,
+        test_key_throttle_per_sound,
+        test_key_now_alone,
+        test_key_plain_with_conditions,
+        test_key_else_per_event_for_parrot,
+        test_key_else_edge_for_streams,
+        test_key_condition_kinds_mixed,
+        test_key_condition_numbers,
+        test_key_else_needs_condition,
+        test_key_init_with_condition,
+        test_key_else_with_throttle,
+        test_key_experimental_flags,
+        test_key_later_key_replaces,
+        test_key_modifiers_on_combos,
+        test_key_conditioned_combo_prefix,
+        test_key_mode_switch_timers,
+        test_key_channel_timers,
+        test_key_parse_error,
+        test_key_options,
+        test_key_check,
+    ]
+    failed = []
+    for test in tests:
+        try:
+            test()
+        except Exception as e:
+            failed.append(test.__name__)
+            print(f"  ✗ {test.__name__}: {type(e).__name__}: {e}")
+            print()
+    print(f"Key behavior: {len(tests) - len(failed)} of {len(tests)} pass")
+    if failed:
+        print("Failing: " + ", ".join(failed))
+    return failed
+
+def bench(rounds: int = 2000):
+    """Microseconds per input through a Celeste-like map: conditions, a release
+    pair, a throttle, a combo and plain keys. For comparing before and after a change."""
+    import time
+
+    noop = lambda: None
+    input_map = InputMap(event_trigger=lambda event: None)
+    input_map.setup({
+        "pop:power>10": ("loud", noop),
+        "pop:else": ("soft", noop),
+        "ss": ("hold", noop),
+        "ss_stop": ("release", noop),
+        "sh:th_90": ("jump", noop),
+        "sh_stop": ("", noop),
+        "tut ee": ("combo", noop),
+        "cluck": ("plain", noop),
+    })
+    sequence = (
+        ("pop", 20.0), ("pop", 5.0), ("ss", None), ("ss_stop", None),
+        ("sh", None), ("sh", None), ("tut", None), ("ee", None), ("cluck", None),
+    )
+    start = time.perf_counter()
+    for _ in range(rounds):
+        for name, power in sequence:
+            input_map.execute(name, power=power)
+    elapsed = time.perf_counter() - start
+    per_input = elapsed / (rounds * len(sequence)) * 1e6
+    print(f"bench: {per_input:.1f} us per input ({rounds * len(sequence)} inputs)")

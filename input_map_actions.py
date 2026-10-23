@@ -1,4 +1,4 @@
-from talon import Module, actions, registry
+from talon import Module, actions, registry, settings
 from .input_map import (
     input_map_mode_cycle,
     input_map_mode_get,
@@ -7,8 +7,11 @@ from .input_map import (
     input_map_handle,
     input_map_event_register,
     input_map_event_unregister,
+    input_map_event_trigger,
     input_map_get,
     input_map_reset,
+    InputMapEvent,
+    EVENT_TYPES,
 )
 from .input_map_channel import (
     channel_register,
@@ -23,6 +26,7 @@ from .input_map_channel import (
     channel_get_legend,
     channel_event_register,
     channel_event_unregister,
+    channel_event_trigger,
 )
 from .input_map_single import (
     single_handle,
@@ -32,6 +36,7 @@ from .input_map_single import (
     single_mode_revert,
     single_get_legend,
 )
+from .input_map_parse import build_legend, parse_key, key_options, check_commands, set_default_init_window
 from .input_map_tests import run_tests
 
 mod = Module()
@@ -138,8 +143,7 @@ class Actions:
         "input input"   - combo results in action
         "input:th_100"  - throttle of 100ms (triggered once every 100ms)
         "input:th"      - default throttle
-        "input:db_100"  - debounce of 100ms (triggered after 100ms of continuous input)
-        "input:db"      - default debounce
+        "input_stop:db_100" - debounce a stop by 100ms (a start inside the wait cancels it)
         "tut $input"    - variable pattern passed to lambda as argument
         "input:power>10"        - conditional on power value
         "input:x<500:y<500"     - multiple conditions (AND)
@@ -211,7 +215,9 @@ class Actions:
         """
         Get the legend for an input map.
 
-        Returns {input: label} with modifiers stripped and empty entries filtered.
+        Returns {input: label}. A base with several bindings keeps a readable
+        modifier, so "left_up:dur<300" and "left_up:dur>=300" get their own rows.
+        Empty labels are filtered out.
 
         - If input_map not provided, uses current active input_map
         - If mode specified, uses that mode
@@ -223,21 +229,7 @@ class Actions:
                 mode = actions.user.input_map_mode_get()
             input_map = input_map.get(mode, input_map["default"])
 
-        legend = {}
-        for input_key, action_tuple in input_map.items():
-            if isinstance(action_tuple, tuple):
-                if len(action_tuple) == 0:
-                    continue
-                label = action_tuple[0]
-            else:
-                label = action_tuple
-
-            if label == "":
-                continue
-            input_key = input_key.split(":")[0]
-            legend[input_key] = label
-
-        return legend
+        return build_legend(input_map)
 
     def input_map_event_register(on_input: callable):
         """
@@ -281,6 +273,94 @@ class Actions:
         ```
         """
         input_map_reset()
+
+    def input_map_key_parse(key: str) -> dict:
+        """
+        Parse an input map key into its inputs, release suffix, 'a + b'
+        chord and ':' modifiers.
+
+        Example:
+        ```py
+        actions.user.input_map_key_parse("pop:power>10:th")
+        # {"key": "pop:power>10:th", "base": "pop", "inputs": ["pop"],
+        #  "release_suffix": "", "release_of": "", "variables": [], "chord": None,
+        #  "modifiers": [
+        #      {"id": "condition", "text": "power>10", "value": ["power", ">", 10.0]},
+        #      {"id": "th", "text": "th", "value": None, "ms": 100}],
+        #  "error": ""}
+        ```
+        A modifier's id is a Type: input_map.modifier, or "" if unknown.
+        error is why the key can't work on its own, or "". Rules across
+        keys are input_map_check's.
+        """
+        return parse_key(key, settings.get("user.input_map_init_window"))
+
+    def input_map_key_options(key: str) -> dict:
+        """
+        What can still go on a key, by the checks a map loads with.
+
+        Example:
+        ```py
+        actions.user.input_map_key_options("hiss_stop")
+        # {"modifiers": ["db", "init", "condition", "else"],
+        #  "conditions": {"dur": {"operators": [">", "<", ">=", "<=", "==", "!="], "whole": True}, ...}}
+        ```
+        modifiers are Type: input_map.modifier ids, conditions are keyed by
+        Type: input_map.condition_variable. Empty for a combo, a variable key,
+        a chord, or a key that is already bad.
+        """
+        return key_options(key)
+
+    def input_map_check(input_map: dict) -> dict:
+        """
+        Every key in a map that can't work, and why, without loading it.
+        Takes one mode's map.
+
+        Example:
+        ```py
+        actions.user.input_map_check({"pop": ..., "pop:else": ..., "pop:power>10": ...})
+        # {"pop": "'pop' and 'pop:else' are both fallbacks, so only one could fire. Keep one."}
+        ```
+        """
+        set_default_init_window(settings.get("user.input_map_init_window"))
+        return check_commands(input_map)[1]
+
+    def input_map_event_simulate(
+        input: str = "",
+        label: str = "",
+        mode: str = None,
+        channel: str = None,
+        event_type: str = "input",
+    ):
+        """
+        Send listeners an event as if the input fired, without running its
+        binding. For previews.
+
+        Args:
+            input: The input as events name it, e.g. "pop" or "hiss_stop"
+            label: The binding's label
+            mode: The mode the event says. Defaults to the current mode
+            channel: A channel's listeners instead of the global ones.
+                Nothing is sent if the channel isn't registered
+            event_type: "input" or "mode_change". Type: input_map.event_type
+
+        Example:
+        ```py
+        actions.user.input_map_event_simulate("pop", "jump")
+        ```
+        """
+        if event_type not in EVENT_TYPES:
+            raise ValueError(f"event_type must be one of {list(EVENT_TYPES)}, not {event_type!r}")
+        if mode is None:
+            try:
+                mode = channel_mode_get(channel) if channel else input_map_mode_get()
+            except ValueError:
+                mode = ""
+        event = InputMapEvent(type=event_type, mode=mode or "", input=input, label=label)
+        if channel:
+            channel_event_trigger(channel, event)
+        else:
+            input_map_event_trigger(event)
 
     # Channel-based input map actions
 
