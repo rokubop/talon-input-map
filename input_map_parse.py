@@ -109,11 +109,10 @@ def _legend_modifier(modifier: str):
 
 
 def mode_entries(input_map: dict, mode: str = None, current=None) -> dict:
-    """A map's entries for `mode`, or for `current()` when no mode is
-    given. A map of modes is one with a "default" mode, or whose first
-    value is a dict, so `{"jump": {...}, "fight": {...}}` is one too; a
-    mode it doesn't have is its default, else its first. A flat map is
-    its own entries, and `current` isn't asked."""
+    """Entries for `mode`, else `current()`. Modal when it has a "default"
+    mode or its first value is a dict; a missing mode falls back to
+    default, else the first. A flat map comes back as is, without asking
+    `current`."""
     first_key = next(iter(input_map), None)
     is_modal = first_key is not None and isinstance(input_map[first_key], dict)
     if "default" not in input_map and not is_modal:
