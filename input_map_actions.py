@@ -225,7 +225,8 @@ class Actions:
         """
         if not input_map:
             input_map = actions.user.input_map()
-        return build_legend(mode_entries(input_map, mode, actions.user.input_map_mode_get))
+        return build_legend(mode_entries(input_map, mode,
+                                         lambda: actions.user.input_map_mode_get()))
 
     def input_map_event_register(on_input: callable):
         """
