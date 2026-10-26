@@ -36,7 +36,8 @@ from .input_map_single import (
     single_mode_revert,
     single_get_legend,
 )
-from .input_map_parse import build_legend, parse_key, key_options, check_commands, set_default_init_window
+from .input_map_parse import (build_legend, mode_entries, parse_key, key_options, check_commands,
+                              set_default_init_window)
 from .input_map_tests import run_tests
 
 mod = Module()
@@ -224,12 +225,7 @@ class Actions:
         """
         if not input_map:
             input_map = actions.user.input_map()
-        if "default" in input_map:
-            if mode is None:
-                mode = actions.user.input_map_mode_get()
-            input_map = input_map.get(mode, input_map["default"])
-
-        return build_legend(input_map)
+        return build_legend(mode_entries(input_map, mode, actions.user.input_map_mode_get))
 
     def input_map_event_register(on_input: callable):
         """

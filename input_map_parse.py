@@ -108,6 +108,22 @@ def _legend_modifier(modifier: str):
     return (None, modifier.replace("_", " "))
 
 
+def mode_entries(input_map: dict, mode: str = None, current=None) -> dict:
+    """A map's entries for `mode`, or for `current()` when no mode is
+    given. A map of modes is one with a "default" mode, or whose first
+    value is a dict, so `{"jump": {...}, "fight": {...}}` is one too; a
+    mode it doesn't have is its default, else its first. A flat map is
+    its own entries, and `current` isn't asked."""
+    first_key = next(iter(input_map), None)
+    is_modal = first_key is not None and isinstance(input_map[first_key], dict)
+    if "default" not in input_map and not is_modal:
+        return input_map
+    if mode is None and current is not None:
+        mode = current()
+    fallback = input_map.get("default", input_map.get(first_key, {}))
+    return input_map.get(mode, fallback)
+
+
 def build_legend(commands: dict) -> dict:
     """{input: label} for display, sized for a HUD column."""
     entries = []
