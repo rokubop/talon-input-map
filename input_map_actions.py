@@ -340,8 +340,8 @@ class Actions:
             input: The input as events name it, e.g. "pop" or "hiss_stop"
             label: The binding's label
             mode: The mode the event says. Defaults to the current mode
-            channel: A channel's listeners instead of the global ones.
-                Nothing is sent if the channel isn't registered
+            channel: A channel's listeners instead of the global ones,
+                whether the channel is registered or not
             event_type: "input" or "mode_change". Type: input_map.event_type
 
         Example:

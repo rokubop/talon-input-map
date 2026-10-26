@@ -569,6 +569,39 @@ def test_channel_events():
     print("  ✓ Event callback unregistered")
 
     channel_unregister("test_events")
+
+
+def test_channel_events_outlive_registration():
+    print("Testing channel events before and across registration...")
+
+    name = "test_events_outlive"
+    if name in _channels:
+        channel_unregister(name)
+    events = []
+
+    def on_input(event):
+        events.append((event.type, event.input))
+
+    channel_event_register(name, on_input)
+    actions.user.input_map_event_simulate("pop", "Click", channel=name)
+    assert events == [("input", "pop")], f"Failed: simulate before register, got {events}"
+    print("  ✓ Hears a simulate before register")
+
+    channel_register(name, {"pop": ("Click", lambda: None)})
+    events.clear()
+    channel_handle(name, "pop")
+    assert events == [("input", "pop")], f"Failed: event after register, got {events}"
+    print("  ✓ Hears after register")
+
+    channel_unregister(name)
+    channel_register(name, {"pop": ("Click", lambda: None)})
+    events.clear()
+    channel_handle(name, "pop")
+    assert events == [("input", "pop")], f"Failed: lost on re-register, got {events}"
+    print("  ✓ Hears after unregister and register")
+
+    channel_event_unregister(name, on_input)
+    channel_unregister(name)
     print()
 
 def test_parse_condition():
@@ -2712,6 +2745,7 @@ def run_tests():
     test_channel_modes()
     test_channel_get_legend()
     test_channel_events()
+    test_channel_events_outlive_registration()
 
     # Single tests
     test_normalize_single_map_simple()
