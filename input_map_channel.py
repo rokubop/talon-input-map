@@ -12,7 +12,9 @@ from .input_map_parse import build_legend
 # Registry of channel name -> InputMap instance
 _channels: dict[str, InputMap] = {}
 
-# Per-channel event callbacks
+# Per-channel event callbacks. Kept apart from the channel itself, so a
+# listener can subscribe before the channel is registered and stays
+# subscribed while it is unregistered and registered again.
 _channel_callbacks: dict[str, list[callable]] = {}
 
 
@@ -21,7 +23,6 @@ def channel_register(channel: str, input_map: dict):
     if channel in _channels:
         print(f"input_map_channel: '{channel}' already registered, keeping existing")
         return
-    _channel_callbacks[channel] = []
     # Create event trigger that uses per-channel callbacks
     def event_trigger(event: dict):
         channel_event_trigger(channel, event)
@@ -30,11 +31,9 @@ def channel_register(channel: str, input_map: dict):
 
 
 def channel_unregister(channel: str):
-    """Remove a channel from the registry."""
+    """Remove a channel from the registry. Its event callbacks stay."""
     if channel in _channels:
         del _channels[channel]
-    if channel in _channel_callbacks:
-        del _channel_callbacks[channel]
 
 
 def channel_list() -> list[str]:
@@ -149,12 +148,9 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
 
 
 def channel_event_register(channel: str, on_input: callable):
-    """Register an event callback for a specific channel."""
-    if channel not in _channels:
-        raise ValueError(f"Channel '{channel}' not registered")
-    if channel not in _channel_callbacks:
-        _channel_callbacks[channel] = []
-    _channel_callbacks[channel].append(on_input)
+    """Register an event callback for a specific channel, registered yet
+    or not."""
+    _channel_callbacks.setdefault(channel, []).append(on_input)
 
 
 def channel_event_unregister(channel: str, on_input: callable):
