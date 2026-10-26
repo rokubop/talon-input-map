@@ -149,7 +149,12 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
 
 def channel_event_register(channel: str, on_input: callable):
     """Register an event callback for a specific channel, registered yet
-    or not."""
+    or not. A name with no map is said once in the log, in case it's a
+    typo rather than early."""
+    if channel not in _channels and channel not in _channel_callbacks:
+        known = ", ".join(sorted(_channels)) or "none"
+        print(f"input_map_channel: listening on '{channel}', which isn't registered yet "
+              f"(registered: {known})")
     _channel_callbacks.setdefault(channel, []).append(on_input)
 
 
