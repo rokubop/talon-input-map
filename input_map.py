@@ -6,10 +6,16 @@ from dataclasses import dataclass
 from talon import Module, actions, cron, settings
 
 
+EVENT_TYPES = {
+    "input": "An input fired its binding.",
+    "mode_change": "",
+}
+
+
 @dataclass(slots=True)
 class InputMapEvent:
     """Event fired when an input map action is triggered or mode changes."""
-    type: str        # "input" or "mode_change"
+    type: str        # one of EVENT_TYPES
     mode: str        # current mode name
     input: str = ""  # input key (e.g. "pop", "hiss")
     label: str = ""  # action label (e.g. "jump", "stop")
@@ -18,6 +24,9 @@ from .input_map_parse import (
     match_variable_pattern,
     execute_variable_action,
     evaluate_conditions,
+    set_default_init_window,
+    MODE_AGE,
+    RELEASE_SUFFIXES,
 )
 
 mod = Module()
@@ -47,14 +56,20 @@ class InputMap():
         self.base_pairs = set()
         self._edge_debounce_jobs = {}
         self.edge_debounce_ms = 0
-        self.modifier_commands = {}
-        self.has_modifiers = False
+        self.chord_commands = {}
+        self.has_chords = False
         self._held_inputs = {}
         self.has_dur = False
         self._start_timestamps = {}
-        self._after_commands = {}
-        self._after_jobs = {}
-        self.has_after = False
+        self.has_mode_age = False
+        self._mode_entered_at = time.monotonic()
+        self.hold_stages = {}
+        self._hold_stop_debounced = set()
+        self._holds = {}
+        self._init_starts = {}
+        self._init_stops = set()
+        self._started_in_init = {}
+        self._release_of = {}
         self.combo_chain = ""
         self.combo_job = None
         self.base_inputs = None
@@ -81,35 +96,51 @@ class InputMap():
         else:
             input_map_event_trigger(event)
 
-    def _schedule_after(self, key, delay_ms, action_tuple):
-        """Schedule action to fire after delay_ms. Cancels previous after for same key."""
-        if self._after_jobs.get(key):
-            cron.cancel(self._after_jobs[key])
-
-        def _fire():
-            self._after_jobs[key] = None
-            # Cancel pending combo — after resolved the input
-            if self.combo_job:
-                cron.cancel(self.combo_job)
-                self.combo_job = None
-                self.combo_chain = ""
-                self.pending_combo = None
-            action_tuple[1]()
-            self._trigger_event(key, action_tuple[0])
-
-        self._after_jobs[key] = cron.after(f"{delay_ms}ms", _fire)
-
-    def _cancel_after(self, key):
-        job = self._after_jobs.get(key)
-        if job:
-            cron.cancel(job)
-            self._after_jobs[key] = None
-
-    def _cancel_all_after(self):
-        for key, job in self._after_jobs.items():
+    def _hold_start(self, base: str) -> bool:
+        """A start of an input with 'dur>=N' stages. Starts while already held,
+        or inside a debounced stop's wait, are the same hold. True when the
+        start only cancelled a pending stop, so nothing else should fire."""
+        for suffix in RELEASE_SUFFIXES:
+            job = self._debounce_busy.get(f"{base}{suffix}")
             if job:
                 cron.cancel(job)
-        self._after_jobs = {}
+                self._debounce_busy[f"{base}{suffix}"] = False
+                return True
+        if base in self._holds:
+            return False
+        hold = {"fired": False, "jobs": []}
+        self._holds[base] = hold
+        if self.has_dur:
+            self._start_timestamps[base] = time.monotonic()
+        for ms, conditions, action in self.hold_stages[base]:
+            # Other conditions on a stage read the start's context
+            if conditions and not evaluate_conditions(conditions, self._context):
+                continue
+            hold["jobs"].append(cron.after(f"{ms}ms", lambda action=action: self._hold_stage(base, hold, action)))
+        return False
+
+    def _hold_stage(self, base: str, hold: dict, action: tuple):
+        if self._holds.get(base) is not hold:
+            return
+        hold["fired"] = True
+        action[1]()
+        self._trigger_event(base, action[0])
+
+    def _end_hold(self, base: str) -> bool:
+        """End the hold. True if a stage fired, so its stop should."""
+        hold = self._holds.pop(base, None)
+        if not hold:
+            return False
+        for job in hold["jobs"]:
+            cron.cancel(job)
+        return hold["fired"]
+
+    def _hold_gate(self, base: str, fn):
+        """A debounced stop of a hold: ends it when the wait is over."""
+        def gated():
+            if self._end_hold(base):
+                fn()
+        return gated
 
     def setup_mode(self, mode):
         if mode:
@@ -122,11 +153,10 @@ class InputMap():
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
-        if self.has_after:
-            self._cancel_all_after()
         if self.current_mode is not None:
             self.previous_mode = self.current_mode
         self.current_mode = mode
+        self._mode_entered_at = time.monotonic()
         self.combo_chain = ""
         self.pending_combo = None
 
@@ -147,11 +177,17 @@ class InputMap():
             self.base_inputs = cached["base_input_set"]
             self.base_pairs = cached["base_pairs"]
             self.unique_combos = cached["unique_combos"]
-            self.modifier_commands = cached["modifier_commands"]
-            self.has_modifiers = cached["has_modifiers"]
+            self.chord_commands = cached["chord_commands"]
+            self.has_chords = cached["has_chords"]
             self.has_dur = cached["has_dur"]
-            self._after_commands = cached["after_commands"]
-            self.has_after = cached["has_after"]
+            self.hold_stages = cached["hold_stages"]
+            self._hold_stop_debounced = cached["hold_stop_debounced"]
+            self._init_starts = cached["init_starts"]
+            self._init_stops = cached["init_stops"]
+            self._release_of = cached["release_of"]
+            self._holds = {}
+            self._started_in_init = {}
+            self.has_mode_age = cached["has_mode_age"]
             self._held_inputs = {}
             self._start_timestamps = {}
             self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
@@ -164,7 +200,8 @@ class InputMap():
 
         commands = input_map.get("commands", {}) if "commands" in input_map else input_map
 
-        categorized = categorize_commands(commands, self._throttle_busy, self._debounce_busy, context_ref=self._context)
+        set_default_init_window(settings.get("user.input_map_init_window", 300))
+        categorized = categorize_commands(commands, self._throttle_busy, self._debounce_busy, context_ref=self._context, hold_gate=self._hold_gate)
         self.immediate_commands = categorized["immediate_commands"]
         self.delayed_commands = categorized["delayed_commands"]
         self.immediate_variable_patterns = categorized["immediate_variable_patterns"]
@@ -180,11 +217,17 @@ class InputMap():
         self.base_inputs = categorized["base_input_set"]
         self.base_pairs = categorized["base_pairs"]
         self.unique_combos = categorized["unique_combos"]
-        self.modifier_commands = categorized["modifier_commands"]
-        self.has_modifiers = categorized["has_modifiers"]
+        self.chord_commands = categorized["chord_commands"]
+        self.has_chords = categorized["has_chords"]
         self.has_dur = categorized["has_dur"]
-        self._after_commands = categorized["after_commands"]
-        self.has_after = categorized["has_after"]
+        self.hold_stages = categorized["hold_stages"]
+        self._hold_stop_debounced = categorized["hold_stop_debounced"]
+        self._init_starts = categorized["init_starts"]
+        self._init_stops = categorized["init_stops"]
+        self._release_of = categorized["release_of"]
+        self._holds = {}
+        self._started_in_init = {}
+        self.has_mode_age = categorized["has_mode_age"]
         self._held_inputs = {}
         self._start_timestamps = {}
         self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
@@ -222,7 +265,7 @@ class InputMap():
         pending = self.pending_combo
         self.combo_chain = ""
         self.pending_combo = None
-        if self._try_modifier_dispatch(pending):
+        if self._try_chord_dispatch(pending):
             return
         # Try conditional first, fall through to unconditional
         if self.has_conditions and self._dispatch_conditional(pending, self.delayed_conditional):
@@ -331,27 +374,27 @@ class InputMap():
             return self._try_conditional_edge(input_chain, conditional_dict)
         return self._try_conditional(input_chain, conditional_dict)
 
-    def _is_modifier_active(self, modifier_name: str) -> bool:
-        """Check if a modifier input is currently active (held or in a non-else region)."""
-        if modifier_name in self._held_inputs:
-            return self._held_inputs[modifier_name]
-        if self.has_edge_triggered and modifier_name in self._edge_triggered_bases:
-            region = self._active_region.get(modifier_name)
+    def _is_modifier_active(self, chord_name: str) -> bool:
+        """Check if a chord input is currently active (held or in a non-else region)."""
+        if chord_name in self._held_inputs:
+            return self._held_inputs[chord_name]
+        if self.has_edge_triggered and chord_name in self._edge_triggered_bases:
+            region = self._active_region.get(chord_name)
             return region is not None and region != _REGION_ELSE
         return False
 
-    def _try_modifier_dispatch(self, input_chain: str) -> bool:
-        """Try to dispatch via cross-input modifier. Returns True if handled."""
-        if not self.has_modifiers:
+    def _try_chord_dispatch(self, input_chain: str) -> bool:
+        """Try to dispatch via cross-input chord. Returns True if handled."""
+        if not self.has_chords:
             return False
-        mod_entries = self.modifier_commands.get(input_chain)
+        mod_entries = self.chord_commands.get(input_chain)
         if not mod_entries:
             return False
         for mod_name, conditions, action_tuple in mod_entries:
             if self._is_modifier_active(mod_name):
                 if conditions is not None:
                     if self.has_edge_triggered and mod_name in self._edge_triggered_bases:
-                        if not self._modifier_matches_active_region(mod_name, conditions):
+                        if not self._chord_matches_active_region(mod_name, conditions):
                             continue
                     elif not evaluate_conditions(conditions, self._context):
                         continue
@@ -364,8 +407,8 @@ class InputMap():
                 return True
         return False
 
-    def _modifier_matches_active_region(self, mod_name: str, conditions: list) -> bool:
-        """Check if modifier conditions match the currently active edge-triggered region."""
+    def _chord_matches_active_region(self, mod_name: str, conditions: list) -> bool:
+        """Check if chord conditions match the currently active edge-triggered region."""
         active_idx = self._active_region.get(mod_name)
         if active_idx is None or active_idx == _REGION_ELSE:
             return False
@@ -517,6 +560,38 @@ class InputMap():
             # Store input context for actions and condition evaluation
             self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
+        if self.has_mode_age:
+            self._context[MODE_AGE] = (time.monotonic() - self._mode_entered_at) * 1000
+
+        # A stop follows the start that fired. After an init start, only an
+        # init stop fires, whenever the release comes; after a plain one,
+        # only a plain stop.
+        if self._init_starts:
+            if input_name in self._init_starts:
+                self._started_in_init[input_name] = self._context[MODE_AGE] < self._init_starts[input_name]
+            else:
+                base = self._release_of.get(input_name)
+                if base in self._init_starts:
+                    in_init = self._started_in_init.pop(base, False)
+                    if in_init and base not in self._init_stops:
+                        return
+                    self._context[MODE_AGE] = 0.0 if in_init else float("inf")
+
+        if self.hold_stages:
+            if input_name in self.hold_stages:
+                if self._hold_start(input_name):
+                    return
+                # A plain key next to the stages fires on press, as a start that fired
+                if not (input_name in self.immediate_commands or input_name in self.delayed_commands
+                        or input_name in self.immediate_conditional or input_name in self.delayed_conditional):
+                    return
+                self._holds[input_name]["fired"] = True
+            base = self._release_of.get(input_name)
+            # A debounced stop ends the hold through _hold_gate, once its wait is over
+            if base in self.hold_stages and base not in self._hold_stop_debounced:
+                if not self._end_hold(base):
+                    return
+
         if input_name not in self.base_inputs:
             # Record start timestamp even if input not in base_inputs
             # (the start event itself may not be mapped, only the _up/_stop)
@@ -524,7 +599,7 @@ class InputMap():
                 self._start_timestamps[input_name] = time.monotonic()
             return
 
-        if self.has_modifiers:
+        if self.has_chords:
             if input_name in self.base_pairs:
                 self._held_inputs[input_name] = True
             elif input_name.endswith("_stop"):
@@ -548,16 +623,13 @@ class InputMap():
                 self._debounce_busy[f"{input_name}_up"] = False
                 return
 
-        _combo_extended = bool(self.combo_job)
         if self.combo_job:
             cron.cancel(self.combo_job)
             self.combo_job = None
-            if self.has_after and self.combo_chain:
-                self._cancel_after(self.combo_chain)
 
         self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
 
-        if self._try_modifier_dispatch(self.combo_chain):
+        if self._try_chord_dispatch(self.combo_chain):
             self.combo_chain = ""
             self.pending_combo = None
             return
@@ -598,12 +670,6 @@ class InputMap():
             self._execute_single_immediate_command(input_name)
         else:
             self._execute_potential_combo()
-
-        # Schedule after command if one exists for this input.
-        # Skip if a multi-input combo consumed this input (combo was extended).
-        if self.has_after and input_name in self._after_commands and not _combo_extended:
-            delay_ms, action_tuple = self._after_commands[input_name]
-            self._schedule_after(input_name, delay_ms, action_tuple)
 
         # Record start timestamp for dur computation (gated)
         if self.has_dur and input_name in self.base_pairs:

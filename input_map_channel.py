@@ -7,11 +7,13 @@ active simultaneously, each processing inputs independently.
 """
 from talon import actions
 from .input_map import InputMap, InputMapEvent
+from .input_map_parse import build_legend, mode_entries
 
 # Registry of channel name -> InputMap instance
 _channels: dict[str, InputMap] = {}
 
-# Per-channel event callbacks
+# Per-channel event callbacks, kept apart from the channels: a listener
+# can subscribe before its channel exists, and outlives it.
 _channel_callbacks: dict[str, list[callable]] = {}
 
 
@@ -20,7 +22,6 @@ def channel_register(channel: str, input_map: dict):
     if channel in _channels:
         print(f"input_map_channel: '{channel}' already registered, keeping existing")
         return
-    _channel_callbacks[channel] = []
     # Create event trigger that uses per-channel callbacks
     def event_trigger(event: dict):
         channel_event_trigger(channel, event)
@@ -29,11 +30,9 @@ def channel_register(channel: str, input_map: dict):
 
 
 def channel_unregister(channel: str):
-    """Remove a channel from the registry."""
+    """Remove a channel from the registry. Its event callbacks stay."""
     if channel in _channels:
         del _channels[channel]
-    if channel in _channel_callbacks:
-        del _channel_callbacks[channel]
 
 
 def channel_list() -> list[str]:
@@ -134,60 +133,17 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
     if channel not in _channels:
         raise ValueError(f"Channel '{channel}' not registered")
     instance = _channels[channel]
-    input_map = instance.input_map_user_ref
-
-    first_key = next(iter(input_map), None)
-    is_modal = first_key and isinstance(input_map[first_key], dict)
-    if "default" in input_map or is_modal:
-        if mode is None:
-            mode = instance.current_mode
-        fallback = input_map.get("default", input_map.get(first_key, {}))
-        input_map = input_map.get(mode, fallback)
-
-    import re
-
-    # Collect all entries with labels
-    entries = []
-    for input_key, action_tuple in input_map.items():
-        if isinstance(action_tuple, tuple):
-            if len(action_tuple) == 0:
-                continue
-            label = action_tuple[0]
-        else:
-            label = action_tuple
-        if label == "":
-            continue
-        base = input_key.split(":")[0]
-        entries.append((input_key, base, label))
-
-    # Count how many entries share each base key
-    base_counts = {}
-    for _, base, _ in entries:
-        base_counts[base] = base_counts.get(base, 0) + 1
-
-    legend = {}
-    for input_key, base, label in entries:
-        if base_counts[base] > 1:
-            # Format modifier readably for display
-            modifier = input_key[len(base):]
-            modifier = re.sub(r":dur([<>=]+)(\d+)", r" \1 \2ms", modifier)
-            modifier = re.sub(r":(th|db|now)_?\d*", "", modifier)
-            display = f"{base}{modifier}".replace("_", " ")
-        else:
-            display = base.replace("_", " ")
-            # Strip all modifiers for single entries
-        legend[display] = label
-
-    return legend
+    return build_legend(mode_entries(instance.input_map_user_ref, mode,
+                                     lambda: instance.current_mode))
 
 
 def channel_event_register(channel: str, on_input: callable):
-    """Register an event callback for a specific channel."""
-    if channel not in _channels:
-        raise ValueError(f"Channel '{channel}' not registered")
-    if channel not in _channel_callbacks:
-        _channel_callbacks[channel] = []
-    _channel_callbacks[channel].append(on_input)
+    """Register an event callback for a channel, registered yet or not."""
+    if channel not in _channels and channel not in _channel_callbacks:
+        known = ", ".join(sorted(_channels)) or "none"
+        print(f"input_map_channel: listening on '{channel}', which isn't registered yet "
+              f"(registered: {known})")
+    _channel_callbacks.setdefault(channel, []).append(on_input)
 
 
 def channel_event_unregister(channel: str, on_input: callable):
