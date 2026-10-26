@@ -7,7 +7,7 @@ active simultaneously, each processing inputs independently.
 """
 from talon import actions
 from .input_map import InputMap, InputMapEvent
-from .input_map_parse import build_legend
+from .input_map_parse import build_legend, mode_entries
 
 # Registry of channel name -> InputMap instance
 _channels: dict[str, InputMap] = {}
@@ -133,17 +133,8 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
     if channel not in _channels:
         raise ValueError(f"Channel '{channel}' not registered")
     instance = _channels[channel]
-    input_map = instance.input_map_user_ref
-
-    first_key = next(iter(input_map), None)
-    is_modal = first_key and isinstance(input_map[first_key], dict)
-    if "default" in input_map or is_modal:
-        if mode is None:
-            mode = instance.current_mode
-        fallback = input_map.get("default", input_map.get(first_key, {}))
-        input_map = input_map.get(mode, fallback)
-
-    return build_legend(input_map)
+    return build_legend(mode_entries(instance.input_map_user_ref, mode,
+                                     lambda: instance.current_mode))
 
 
 def channel_event_register(channel: str, on_input: callable):

@@ -2556,6 +2556,27 @@ def test_legend_filters_empty_labels():
 
     print()
 
+
+def test_legend_modes_without_default():
+    print("Testing legend for a map of modes with no default...")
+
+    modes = {
+        "jump": {"pop": ("jump", lambda: None)},
+        "fight": {"pop": ("click", lambda: None)},
+    }
+    legend = actions.user.input_map_get_legend(modes, "fight")
+    assert legend == {"pop": "click"}, f"Failed: named mode, got {legend}"
+    legend = actions.user.input_map_get_legend(modes, "nope")
+    assert legend == {"pop": "jump"}, f"Failed: unknown mode is the first, got {legend}"
+    print("  ✓ A mode, and the first for one it doesn't have")
+
+    flat = {"pop": ("click", lambda: None)}
+    legend = actions.user.input_map_get_legend(flat, "fight")
+    assert legend == {"pop": "click"}, f"Failed: flat map, got {legend}"
+    print("  ✓ A flat map is its own legend")
+
+    print()
+
 def test_legend_real_world_map_unchanged():
     print("Testing legend on a real-world map...")
 
@@ -2806,6 +2827,7 @@ def run_tests():
     test_legend_hud_shapes()
     test_legend_filters_empty_labels()
     test_legend_real_world_map_unchanged()
+    test_legend_modes_without_default()
 
     # Mode init window (':init') tests
     test_init_parse()
