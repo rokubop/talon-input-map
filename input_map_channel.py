@@ -12,9 +12,8 @@ from .input_map_parse import build_legend
 # Registry of channel name -> InputMap instance
 _channels: dict[str, InputMap] = {}
 
-# Per-channel event callbacks. Kept apart from the channel itself, so a
-# listener can subscribe before the channel is registered and stays
-# subscribed while it is unregistered and registered again.
+# Per-channel event callbacks, kept apart from the channels: a listener
+# can subscribe before its channel exists, and outlives it.
 _channel_callbacks: dict[str, list[callable]] = {}
 
 
@@ -148,9 +147,7 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
 
 
 def channel_event_register(channel: str, on_input: callable):
-    """Register an event callback for a specific channel, registered yet
-    or not. A name with no map is said once in the log, in case it's a
-    typo rather than early."""
+    """Register an event callback for a channel, registered yet or not."""
     if channel not in _channels and channel not in _channel_callbacks:
         known = ", ".join(sorted(_channels)) or "none"
         print(f"input_map_channel: listening on '{channel}', which isn't registered yet "

@@ -582,25 +582,23 @@ def test_channel_events_outlive_registration():
     def on_input(event):
         events.append((event.type, event.input))
 
-    # A HUD subscribes before its game turns the channel on
     channel_event_register(name, on_input)
     actions.user.input_map_event_simulate("pop", "Click", channel=name)
     assert events == [("input", "pop")], f"Failed: simulate before register, got {events}"
-    print("  ✓ Subscribe and simulate before register")
+    print("  ✓ Hears a simulate before register")
 
     channel_register(name, {"pop": ("Click", lambda: None)})
     events.clear()
     channel_handle(name, "pop")
     assert events == [("input", "pop")], f"Failed: event after register, got {events}"
-    print("  ✓ Subscribed before register, hears after")
+    print("  ✓ Hears after register")
 
-    # Game mode off and on again: the channel comes and goes
     channel_unregister(name)
     channel_register(name, {"pop": ("Click", lambda: None)})
     events.clear()
     channel_handle(name, "pop")
     assert events == [("input", "pop")], f"Failed: lost on re-register, got {events}"
-    print("  ✓ Still subscribed after unregister and register")
+    print("  ✓ Hears after unregister and register")
 
     channel_event_unregister(name, on_input)
     channel_unregister(name)
