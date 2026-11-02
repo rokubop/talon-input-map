@@ -374,7 +374,7 @@ actions.user.input_map_reset()        # drop the cache, re-read on the next inpu
 Read voice commands out of a `.talon` file, for HUDs that list both noises and commands:
 ```py
 actions.user.input_map_get_talon_commands("talon-game-sheepy/sheepy_game.talon")
-# {"jump": 'user.gamekit_button_tap("a")', ...}
+# {"jump": 'user.gamekit_gamepad_button_tap("a")', ...}
 
 actions.user.input_map_get_talon_commands_grouped("talon-game-sheepy/sheepy_game.talon")
 # {"WASD": ["go", "back"], "Combat": ["hit", "strong"]}   # grouped by "# Section" comments

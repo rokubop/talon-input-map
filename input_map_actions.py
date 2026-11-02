@@ -606,7 +606,7 @@ class Actions:
 
         ```py
         cmds = actions.user.input_map_get_talon_commands("talon-game-sheepy/sheepy_game.talon")
-        # {"jump": 'user.gamekit_button_tap("a")', "stop": "user.gamekit_stop_all()", ...}
+        # {"jump": 'user.gamekit_gamepad_button_tap("a")', "stop": "user.gamekit_stop_all()", ...}
         ```
         """
         if not talon_path.endswith(".talon"):
