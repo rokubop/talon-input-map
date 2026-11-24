@@ -10,6 +10,7 @@ from .input_map import (
     input_map_event_trigger,
     input_map_get,
     input_map_reset,
+    input_map_run_coroutine,
     InputMapEvent,
     EVENT_TYPES,
 )
@@ -358,6 +359,13 @@ class Actions:
             channel_event_trigger(channel, event)
         else:
             input_map_event_trigger(event)
+
+    def input_map_run_coroutine(coroutine: object):
+        """
+        Run a binding's coroutine, from an `async def`. A package that runs
+        async bindings overrides this. The default prints and closes it.
+        """
+        input_map_run_coroutine(coroutine)
 
     # Channel-based input map actions
 

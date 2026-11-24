@@ -158,6 +158,7 @@ parrot(pop): user.input_map_handle("pop")
 ```py
 "pop": ("click", lambda: actions.mouse_click(0)),
 ```
+A binding can be an `async def`. It runs if a package overrides `user.input_map_run_coroutine`, else prints.
 
 **Combo**
 ```talon

@@ -1,6 +1,8 @@
 from talon import actions
-from .input_map import InputMap, input_map_saved, input_map_mode_revert
+from .input_map import InputMap, input_map_saved, input_map_mode_revert, input_map_run_coroutine
+from . import input_map_parse
 from .input_map_parse import (
+    execute_variable_action,
     get_base_input,
     extract_variables,
     pattern_to_regex,
@@ -2696,6 +2698,98 @@ def test_types_match_parser():
 
     print()
 
+@contextlib.contextmanager
+def _handed_off():
+    """Swaps the coroutine runner. Yields the names of the coroutines handed to it."""
+    handed = []
+    def run(coroutine):
+        handed.append(coroutine.__name__)
+        coroutine.close()
+    saved = input_map_parse._run_coroutine
+    input_map_parse._run_coroutine = run
+    try:
+        yield handed
+    finally:
+        input_map_parse._run_coroutine = saved
+
+def test_async_bindings():
+    print("Testing async def bindings hand off once per fire...")
+
+    async def jump(): pass
+    async def charge(power): pass
+    async def reverse(noise): pass
+    noop = ("", lambda: None)
+
+    # (case, map, inputs or sleeps, coroutines handed off)
+    cases = [
+        ("Immediate", {"pop": ("jump", jump)}, ["pop"], ["jump"]),
+        ("Throttle", {"pop:th_100": ("jump", jump)}, ["pop", "pop"], ["jump"]),
+        ("Debounced stop", {"hiss": noop, "hiss_stop:db_100": ("jump", jump)},
+            ["hiss", "hiss_stop", "200ms"], ["jump"]),
+        ("Dur stage", {"hiss:dur>=100": ("jump", jump)}, ["hiss", "150ms", "hiss_stop"], ["jump"]),
+        ("Delayed combo", {"pop": ("jump", jump), "pop cluck": noop}, ["pop", "400ms"], ["jump"]),
+        ("$var with an argument", {"tut": noop, "pop": noop, "tut $noise": ("reverse", reverse)},
+            ["tut", "pop"], ["reverse"]),
+        ("power param", {"pop": ("charge", charge)}, ["pop"], ["charge"]),
+        ("Chord", {"pedal": noop, "pedal_stop": noop, "pedal + pop": ("jump", jump)},
+            ["pedal", "pop", "pedal_stop"], ["jump"]),
+    ]
+    for case, config, steps, expected in cases:
+        with _handed_off() as handed:
+            input_map, printed = _load(config)
+            _assert_clean(printed)
+            for step in steps:
+                if step.endswith("ms"):
+                    actions.sleep(step)
+                else:
+                    input_map.execute(step, power=20.0)
+        assert handed == expected, f"Failed: {case}: got {handed}"
+        print(f"  ✓ {case}")
+
+    print()
+
+def test_async_plain_result_untouched():
+    print("Testing a binding returning a non-coroutine...")
+
+    result = object()
+    with _handed_off() as handed:
+        input_map, _ = _load({"pop": ("x", lambda: result)})
+        returned = input_map.immediate_commands["pop"][1]()
+    assert returned is result and handed == [], f"Failed: got {returned}, {handed}"
+    print("  ✓ Returned as is, nothing handed off")
+
+    print()
+
+def test_async_default_runner():
+    print("Testing the default coroutine runner...")
+
+    async def jump(): pass
+    coroutine = jump()
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        input_map_run_coroutine(coroutine)
+    assert coroutine.cr_frame is None, "Failed: coroutine not closed"
+    assert "jump didn't run" in printed.getvalue(), f"Failed: got {printed.getvalue()}"
+    print("  ✓ Prints and closes it")
+
+    print()
+
+def test_variable_action_type_error_runs_once():
+    print("Testing a $var binding raising TypeError...")
+
+    calls = []
+    def reverse(noise=None):
+        calls.append(noise)
+        raise TypeError("from the binding")
+    try:
+        execute_variable_action(("reverse", reverse), {"noise": "pop"})
+    except TypeError:
+        pass
+    assert calls == ["pop"], f"Failed: got {calls}"
+    print("  ✓ Called once")
+
+    print()
+
 def run_tests():
     print("="* 50)
     print("Running Input Map Tests")
@@ -2841,6 +2935,12 @@ def run_tests():
     # Key parsing and types
     test_parse_key()
     test_types_match_parser()
+
+    # Async def bindings
+    test_async_bindings()
+    test_async_plain_result_untouched()
+    test_async_default_runner()
+    test_variable_action_type_error_runs_once()
 
     failed = run_key_behavior_tests()
     bench()

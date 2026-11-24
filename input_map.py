@@ -717,6 +717,10 @@ def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: 
 
     debounce_busy[id] = cron.after(f"{time_ms}ms", _fire)
 
+def input_map_run_coroutine(coroutine):
+    print(f"input_map: async def {coroutine.__qualname__} didn't run: no package here runs async bindings")
+    coroutine.close()
+
 def input_map_handle(
     input_name: str,
     power: float = None,

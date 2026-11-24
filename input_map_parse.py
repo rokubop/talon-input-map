@@ -4,6 +4,8 @@ This module handles setup-time processing (cold path).
 """
 import re
 import inspect
+import functools
+from talon import actions
 
 # Key syntax. The parser and input_map_types() both read these.
 
@@ -390,6 +392,24 @@ def key_options(key: str) -> dict:
                        if (bool(out["conditions"]) if seg_id == "condition" else ok(f"{key}:{seg_id}"))]
     return out
 
+# Swapped by tests
+_run_coroutine = lambda coroutine: actions.user.input_map_run_coroutine(coroutine)
+
+def _runs_coroutines(fn):
+    """A binding that returns a coroutine, an async def, hands it to the runner."""
+    def run(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        if inspect.iscoroutine(result):
+            _run_coroutine(result)
+            return None
+        return result
+    try:
+        functools.update_wrapper(run, fn)
+    except Exception:
+        # A Talon action proxy may answer any attribute name
+        run.__wrapped__ = fn
+    return run
+
 def get_modified_action(input, action, throttle_busy, debounce_busy):
     # Late import to avoid circular dependency
     from .input_map import input_map_throttle, input_map_debounce
@@ -459,16 +479,13 @@ def execute_variable_action(action: tuple, variables: dict[str, str]):
     lambda_func = action[1]
 
     try:
-        sig = inspect.signature(lambda_func)
-        param_count = len(sig.parameters)
-
-        if param_count == 0:
-            return lambda_func()
-        else:
-            var_values = list(variables.values())
-            return lambda_func(*var_values)
+        param_count = len(inspect.signature(lambda_func).parameters)
     except (ValueError, TypeError):
         return lambda_func()
+
+    if param_count == 0:
+        return lambda_func()
+    return lambda_func(*variables.values())
 
 def wrap_with_context(action: tuple, context_ref: dict) -> tuple:
     """If callable has params matching context keys, wrap to pull from context_ref at call time."""
@@ -812,6 +829,9 @@ def categorize_commands(commands, throttle_busy, debounce_busy, context_ref=None
         except ValueError as e:
             print(e)
             continue
+
+        # Innermost, so every way a binding fires goes through it once
+        action = (action[0], _runs_coroutines(action[1]))
 
         if has_chord(input):
             chord_input_keys.append((input, action))
