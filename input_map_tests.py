@@ -2843,30 +2843,41 @@ def test_run_hands_over_a_timer():
 
     print()
 
-def test_run_cancel_holds_while_a_timer_waits():
-    print("Testing a combo's timer cancelled after cron fired it...")
+def test_run_timer_decided_when_due():
+    print("Testing a combo's timer decided on cron when it's due, its bindings run later...")
 
     calls = []
     with _jobs_kept(inputs_here=True) as kept:
         input_map, _ = _load({
             "pop": ("pop", lambda: calls.append("pop")),
             "pop cluck": ("pop cluck", lambda: calls.append("pop cluck")),
-            "pop cluck pop": ("all", lambda: calls.append("all")),
+            "pop pop": ("double", lambda: calls.append("double")),
         })
         input_map.execute("pop")
         actions.sleep("400ms")
-        assert len(kept) == 1, f"Failed: got {kept}"
-        stale = kept.pop()[1]
-        # Its job hasn't run yet: this input cancels it, and waits on its own
+        assert [source for source, _ in kept] == ["timer"] and calls == [], f"Failed: got {kept}, {calls}"
+        late = kept.pop()[1]
+        # Its bindings haven't run yet, but its lookup has: this input
+        # neither cancels it nor joins it into a combo
         input_map.execute("cluck")
-        stale()
-        assert calls == [], f"Failed: the cancelled timer fired, got {calls}"
-        print("  ✓ The cancelled timer's job does nothing")
+        late()
+        assert calls == ["pop"], f"Failed: got {calls}"
         actions.sleep("400ms")
-        assert len(kept) == 1, f"Failed: got {kept}"
+        assert kept == [] and calls == ["pop"], f"Failed: got {kept}, {calls}"
+        print("  ✓ A later input can't cancel it")
+
+        calls.clear()
+        input_map.execute("pop")
+        actions.sleep("400ms")
+        late = kept.pop()[1]
+        # A second pop past the window, the first's binding still to run
+        input_map.execute("pop")
+        late()
+        actions.sleep("400ms")
+        assert [source for source, _ in kept] == ["timer"], f"Failed: got {kept}"
         kept.pop()[1]()
-    assert calls == ["pop cluck"], f"Failed: got {calls}"
-    print("  ✓ The newer timer fires")
+    assert calls == ["pop", "pop"], f"Failed: two pops merged, got {calls}"
+    print("  ✓ Two pops past the window never make a combo")
 
     print()
 
@@ -3150,7 +3161,7 @@ def _run_tests():
     # input_map_run and the lock
     test_run_hands_over_an_input()
     test_run_hands_over_a_timer()
-    test_run_cancel_holds_while_a_timer_waits()
+    test_run_timer_decided_when_due()
     test_lock_mode_switch_from_a_binding()
     test_lock_lookup_reads_one_mode()
 
