@@ -3101,15 +3101,16 @@ def test_run_handle_job():
     try:
         with _jobs_kept() as kept:
             input_map_handle("pop")
-            assert [source for source, _ in kept] == ["input"] and calls == [] and reads == [], \
+            assert [source for source, _ in kept] == ["input"] and calls == [] and reads == [True], \
                 f"Failed: got {kept}, {calls}, {reads}"
+            input_map_core._context_map = lambda: (reads.append(True), {})[1]
             with contextlib.redirect_stdout(io.StringIO()):
                 kept.pop()[1]()
         assert calls == ["pop"] and reads == [True], f"Failed: got {calls}, {reads}"
     finally:
         input_map_core._context_map = saved
         input_map_reset()
-    print("  ✓ One \"input\" job: the map is read and looked up when it runs")
+    print("  ✓ One \"input\" job: the map is read on arrival, and looked up when it runs")
 
     print()
 

@@ -791,11 +791,8 @@ def input_map_handle(
         input_map_saved.lookup(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
     at = time.monotonic()
-
-    def job():
-        input_map = _context_map()
-        locked(lambda: lookup(input_map), at)
-    run_job(job, "input")
+    input_map = _context_map()
+    run_job(lambda: locked(lambda: lookup(input_map), at), "input")
 
 def input_map_event_register(on_input: callable):
     with state_lock:
