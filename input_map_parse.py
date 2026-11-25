@@ -394,15 +394,21 @@ def key_options(key: str) -> dict:
 
 # Swapped by tests
 _run_coroutine = lambda coroutine: actions.user.input_map_run_coroutine(coroutine)
+_run_binding = lambda binding: actions.user.input_map_run_binding(binding)
+
+def run_binding_here(binding):
+    """`input_map_run_binding`'s default: the binding on this thread, a
+    coroutine it returns to the runner."""
+    result = binding()
+    if inspect.iscoroutine(result):
+        _run_coroutine(result)
 
 def _runs_coroutines(fn):
-    """A binding that returns a coroutine, an async def, hands it to the runner."""
+    """A binding goes through `input_map_run_binding`, which a package can
+    override to run it elsewhere. A coroutine it returns, an async def's,
+    goes to the runner."""
     def run(*args, **kwargs):
-        result = fn(*args, **kwargs)
-        if inspect.iscoroutine(result):
-            _run_coroutine(result)
-            return None
-        return result
+        _run_binding(lambda: fn(*args, **kwargs))
     try:
         functools.update_wrapper(run, fn)
     except Exception:

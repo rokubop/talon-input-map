@@ -2705,12 +2705,13 @@ def _handed_off():
     def run(coroutine):
         handed.append(coroutine.__name__)
         coroutine.close()
-    saved = input_map_parse._run_coroutine
+    saved = input_map_parse._run_coroutine, input_map_parse._run_binding
     input_map_parse._run_coroutine = run
+    input_map_parse._run_binding = input_map_parse.run_binding_here
     try:
         yield handed
     finally:
-        input_map_parse._run_coroutine = saved
+        input_map_parse._run_coroutine, input_map_parse._run_binding = saved
 
 def test_async_bindings():
     print("Testing async def bindings hand off once per fire...")
@@ -2751,12 +2752,30 @@ def test_async_bindings():
 def test_async_plain_result_untouched():
     print("Testing a binding returning a non-coroutine...")
 
-    result = object()
+    calls = []
     with _handed_off() as handed:
-        input_map, _ = _load({"pop": ("x", lambda: result)})
-        returned = input_map.immediate_commands["pop"][1]()
-    assert returned is result and handed == [], f"Failed: got {returned}, {handed}"
-    print("  ✓ Returned as is, nothing handed off")
+        input_map, _ = _load({"pop": ("x", lambda: calls.append("x") or 1)})
+        input_map.immediate_commands["pop"][1]()
+    assert calls == ["x"] and handed == [], f"Failed: got {calls}, {handed}"
+    print("  ✓ Called once, nothing handed off")
+
+    print()
+
+def test_binding_goes_through_run_binding():
+    print("Testing a binding handed to input_map_run_binding...")
+
+    hopped, calls = [], []
+    saved = input_map_parse._run_binding
+    input_map_parse._run_binding = lambda binding: hopped.append(binding)
+    try:
+        input_map, _ = _load({"pop": ("x", lambda: calls.append("x"))})
+        input_map.immediate_commands["pop"][1]()
+    finally:
+        input_map_parse._run_binding = saved
+    assert len(hopped) == 1 and calls == [], f"Failed: got {hopped}, {calls}"
+    hopped[0]()
+    assert calls == ["x"], f"Failed: got {calls}"
+    print("  ✓ Handed over, runs when the runner calls it")
 
     print()
 
@@ -2939,6 +2958,7 @@ def run_tests():
     # Async def bindings
     test_async_bindings()
     test_async_plain_result_untouched()
+    test_binding_goes_through_run_binding()
     test_async_default_runner()
     test_variable_action_type_error_runs_once()
 

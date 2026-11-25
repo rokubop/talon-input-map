@@ -160,6 +160,8 @@ parrot(pop): user.input_map_handle("pop")
 ```
 A binding can be an `async def`. It runs if a package overrides `user.input_map_run_coroutine`, else prints.
 
+Every binding goes through `user.input_map_run_binding`, which runs it in place. A package can override it to run bindings on a thread of its own.
+
 **Combo**
 ```talon
 parrot(pop):   user.input_map_handle("pop")

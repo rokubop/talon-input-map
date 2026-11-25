@@ -11,6 +11,7 @@ from .input_map import (
     input_map_get,
     input_map_reset,
     input_map_run_coroutine,
+    input_map_run_binding,
     InputMapEvent,
     EVENT_TYPES,
 )
@@ -359,6 +360,14 @@ class Actions:
             channel_event_trigger(channel, event)
         else:
             input_map_event_trigger(event)
+
+    def input_map_run_binding(binding: object):
+        """
+        Run a fired binding: `binding()` takes no arguments. The default runs
+        it here and hands a coroutine it returns to `input_map_run_coroutine`.
+        A package overrides this to run bindings on a thread of its own.
+        """
+        input_map_run_binding(binding)
 
     def input_map_run_coroutine(coroutine: object):
         """

@@ -27,6 +27,7 @@ from .input_map_parse import (
     set_default_init_window,
     MODE_AGE,
     RELEASE_SUFFIXES,
+    run_binding_here,
 )
 
 mod = Module()
@@ -716,6 +717,9 @@ def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: 
         debounce_busy[id] = False
 
     debounce_busy[id] = cron.after(f"{time_ms}ms", _fire)
+
+def input_map_run_binding(binding):
+    run_binding_here(binding)
 
 def input_map_run_coroutine(coroutine):
     print(f"input_map: async def {coroutine.__qualname__} didn't run: no package here runs async bindings")
