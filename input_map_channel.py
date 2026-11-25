@@ -8,6 +8,7 @@ active simultaneously, each processing inputs independently.
 The registry and each channel's state are read and changed under input-map's
 lock (`state_lock`). Listeners hear a mode change once it's let go.
 """
+import time
 from talon import actions
 from .input_map import InputMap, InputMapEvent
 from .input_map_parse import build_legend, mode_entries, state_lock, locked, fire
@@ -74,10 +75,12 @@ def channel_handle(
     y: float = None,
     value: float = None
 ):
-    """Execute input handling for a specific channel, as an "input" job"""
+    """Execute input handling for a specific channel, as an "input" job,
+    timed now"""
+    at = time.monotonic()
     with state_lock:
         instance = _instance(channel)
-    instance.execute(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+    instance.execute(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value, at=at)
 
 
 def _mode_changed(channel: str, mode: str):
@@ -135,8 +138,8 @@ def channel_get_legend(channel: str, mode: str = None) -> dict[str, str]:
     """Get the legend for a channel's input map."""
     with state_lock:
         instance = _instance(channel)
-    return build_legend(mode_entries(instance.input_map_user_ref, mode,
-                                     lambda: instance.current_mode))
+        input_map, current = instance.input_map_user_ref, instance.current_mode
+    return build_legend(mode_entries(input_map, mode, lambda: current))
 
 
 def channel_event_register(channel: str, on_input: callable):

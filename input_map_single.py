@@ -6,10 +6,11 @@ input_map_single provides a minimal way to make a single input mode-aware.
 Auto-registers on first call; re-registers if the map reference changes.
 
 The registry and each single's state are read and changed under input-map's
-lock (`state_lock`).
+lock (`state_lock`), a mode change as a lookup (`locked`).
 """
+import time
 from .input_map import InputMap, input_map_event_trigger
-from .input_map_parse import build_legend, state_lock
+from .input_map_parse import build_legend, state_lock, locked
 
 # Registry of name -> InputMap instance
 _singles: dict[str, InputMap] = {}
@@ -72,18 +73,19 @@ def single_handle(
     y: float = None,
     value: float = None
 ):
-    """Main entry point for single input handling, as an "input" job."""
+    """Main entry point for single input handling, as an "input" job, timed now."""
+    at = time.monotonic()
     with state_lock:
         if name not in _singles or _singles_map_ref[name] is not user_map:
             _register_single(name, user_map)
         instance = _singles[name]
 
-    instance.execute(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+    instance.execute(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value, at=at)
 
 
 def single_mode_set(name: str, mode: str, user_map: dict = None):
     """Set the mode for a single input. Optionally pass user_map to auto-register."""
-    with state_lock:
+    def mode_set():
         if name not in _singles:
             if user_map is not None:
                 _register_single(name, user_map)
@@ -96,6 +98,7 @@ def single_mode_set(name: str, mode: str, user_map: dict = None):
             instance.setup_mode(mode)
         else:
             raise ValueError(f"Mode '{mode}' not found in single '{name}'")
+    locked(mode_set)
 
 
 def single_mode_get(name: str) -> str:
@@ -108,7 +111,7 @@ def single_mode_get(name: str) -> str:
 
 def single_mode_cycle(name: str) -> str:
     """Cycle to the next mode for a single input."""
-    with state_lock:
+    def cycle():
         if name not in _singles:
             raise ValueError(f"Single '{name}' not registered")
         instance = _singles[name]
@@ -122,17 +125,19 @@ def single_mode_cycle(name: str) -> str:
             return next_mode
         else:
             raise ValueError(f"Mode '{current_mode}' not found in single '{name}'")
+    return locked(cycle)
 
 
 def single_mode_revert(name: str) -> str:
     """Revert to the previous mode for a single input."""
-    with state_lock:
+    def revert():
         if name not in _singles:
             raise ValueError(f"Single '{name}' not registered")
         instance = _singles[name]
         if instance.previous_mode is not None:
             instance.setup_mode(instance.previous_mode)
         return instance.current_mode
+    return locked(revert)
 
 
 def single_get_legend(name: str, user_map: dict, mode: str = None) -> dict[str, str]:

@@ -365,10 +365,12 @@ class Actions:
         """
         Run one of input-map's jobs: `job()` takes no arguments. `source` is
         "input" for a handle call: the job looks up what fires under
-        input-map's lock, then runs those bindings outside it. "timer" for a
-        delayed fire of input-map's own, a combo's, a debounce's, a hold
-        stage's: its lookup ran on cron when it was due, and the job runs
-        the bindings it fired. The default runs it here. A package
+        input-map's lock, then runs those bindings outside it, the input
+        timed when it was handed over. "timer" for a delayed fire of
+        input-map's own, a combo's, a debounce's, a hold stage's: its
+        lookup ran when it was due, on cron, or first in the lookup that
+        found it overdue, and the job runs the bindings it fired. The
+        default runs it here. A package
         overrides this to run jobs on threads of its own, keeping each
         source's jobs in order.
         """

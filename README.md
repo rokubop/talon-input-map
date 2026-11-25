@@ -160,7 +160,15 @@ parrot(pop): user.input_map_handle("pop")
 ```
 A binding can be an `async def`. It runs if a package overrides `user.input_map_run_coroutine`, else prints.
 
-Each input is a job through `user.input_map_run(job, source)`, `source` "input": it looks up what fires, then runs those bindings. Each of input-map's own delayed fires (a combo's, a debounce's, a hold stage's) looks up on Talon's cron when it's due, and the bindings it fires are a job with `source` "timer". The default runs a job in place. A package can override it to run jobs on threads of its own. input-map changes its state under a lock of its own, never held while a binding runs, so a binding can switch modes and inputs from other threads go on meanwhile.
+Each input is a job through `user.input_map_run(job, source)`, `source` "input": input-map decides what the input fires, then runs those bindings. The default runs a job in place. A package can override it to run jobs on threads of its own. input-map changes its state under a lock of its own, never held while a binding runs, so a binding can switch modes and inputs from other threads go on meanwhile.
+
+A binding runs once input-map has decided everything about its input. So a binding that switches modes changes what the next input does, not the input that ran it: that one's other bindings and its event are the mode it arrived in. Switching modes also forgets what the old mode was tracking, a hold's start say, so a stop that comes after the switch has no duration.
+
+Listeners hear an input's event after its bindings, on the thread its job runs on: in place by default, or wherever a package's `input_map_run` runs it.
+
+An input is timed when it arrives, when `input_map_handle` is called, even if its job runs later: its duration, its mode's age, the combo window.
+
+Delayed fires (a combo's, a debounce's, a hold stage's, an edge debounce's) keep their deadlines. Each is decided on Talon's cron when it's due, and the bindings it fires are a job with `source` "timer". If cron is late, held by something slow, the next input to arrive decides any fire that was due before it first. So a second pop can't cancel the first pop's fire, or join it into a combo, once its window is over. A mode switch drops a combo's or an edge debounce's fire still waiting.
 
 **Combo**
 ```talon

@@ -3,7 +3,7 @@ Core InputMap class and runtime execution logic (hot path).
 """
 import time
 from dataclasses import dataclass
-from talon import Module, actions, cron, settings
+from talon import Module, actions, settings
 
 
 EVENT_TYPES = {
@@ -29,9 +29,11 @@ from .input_map_parse import (
     RELEASE_SUFFIXES,
     state_lock,
     locked,
-    looked_up,
     fire,
     run_job,
+    after,
+    cancel,
+    now,
 )
 
 mod = Module()
@@ -40,44 +42,8 @@ _REGION_ELSE = -1
 
 event_subscribers = []
 
-class _Timer:
-    """A delayed fire of input-map's own, on Talon's cron. A cancel holds even
-    once cron has fired it, until its lookup has the lock."""
-    __slots__ = ("job", "cancelled")
-
-    def __init__(self):
-        self.job = None
-        self.cancelled = False
-
-def _after(ms: str, fn, fires_bindings: bool = True) -> _Timer:
-    """`fn()` under the lock after `ms`, unless cancelled first (`_cancel`).
-    Its lookup runs on cron when it's due, so the next input can't cancel it
-    late or join it into a combo. The bindings it fires are a "timer" job
-    through `input_map_run`. One that only changes state fires none."""
-    timer = _Timer()
-
-    def lookup():
-        if not timer.cancelled:
-            fn()
-
-    def due():
-        fires = looked_up(lookup)
-        if fires and fires_bindings:
-            def bindings():
-                for call in fires:
-                    call()
-            run_job(bindings, "timer")
-        else:
-            for call in fires:
-                call()
-    timer.job = cron.after(ms, due)
-    return timer
-
-def _cancel(timer):
-    """Under the lock. A timer's lookup still to run does nothing."""
-    if timer:
-        timer.cancelled = True
-        cron.cancel(timer.job)
+_after = after
+_cancel = cancel
 
 def _under_lock(method):
     def run(*args, **kwargs):
@@ -113,7 +79,7 @@ class InputMap():
         self.has_dur = False
         self._start_timestamps = {}
         self.has_mode_age = False
-        self._mode_entered_at = time.monotonic()
+        self._mode_entered_at = now()
         self.hold_stages = {}
         self._hold_stop_debounced = set()
         self._holds = {}
@@ -161,7 +127,7 @@ class InputMap():
         hold = {"fired": False, "jobs": []}
         self._holds[base] = hold
         if self.has_dur:
-            self._start_timestamps[base] = time.monotonic()
+            self._start_timestamps[base] = now()
         for ms, conditions, action in self.hold_stages[base]:
             # Other conditions on a stage read the start's context
             if conditions and not evaluate_conditions(conditions, self._context):
@@ -207,7 +173,7 @@ class InputMap():
         if self.current_mode is not None:
             self.previous_mode = self.current_mode
         self.current_mode = mode
-        self._mode_entered_at = time.monotonic()
+        self._mode_entered_at = now()
         self.combo_chain = ""
         self.pending_combo = None
 
@@ -592,12 +558,15 @@ class InputMap():
         f2: float = None,
         x: float = None,
         y: float = None,
-        value: float = None
+        value: float = None,
+        at: float = None
     ):
         """An input, as an "input" job through `input_map_run`: its lookup
-        under the lock, then the bindings it fired."""
+        under the lock, then the bindings it fired. Timed when it arrives,
+        here or `at`, however late its job runs."""
+        at = time.monotonic() if at is None else at
         run_job(lambda: locked(lambda: self.lookup(input_name, power=power, f0=f0, f1=f1, f2=f2,
-                                                   x=x, y=y, value=value)), "input")
+                                                   x=x, y=y, value=value), at), "input")
 
     def lookup(
         self,
@@ -611,7 +580,8 @@ class InputMap():
         value: float = None
     ):
         """An input's state changes, under the lock (`locked`). The bindings
-        it fires run once the lock is let go."""
+        it fires run once the lock is let go. Its time (`now`) is when it
+        arrived."""
         # Compute dur if this input map uses dur conditions
         if self.has_dur:
             dur = None
@@ -619,19 +589,20 @@ class InputMap():
                 base = input_name[:-5]
                 start_time = self._start_timestamps.pop(base, None)
                 if start_time is not None:
-                    dur = (time.monotonic() - start_time) * 1000
+                    dur = (now() - start_time) * 1000
             elif input_name.endswith("_up"):
                 base = input_name[:-3]
                 start_time = self._start_timestamps.pop(base, None)
                 if start_time is not None:
-                    dur = (time.monotonic() - start_time) * 1000
+                    dur = (now() - start_time) * 1000
             self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value, dur=dur)
         else:
             # Store input context for actions and condition evaluation
             self._context.update(power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
         if self.has_mode_age:
-            self._context[MODE_AGE] = (time.monotonic() - self._mode_entered_at) * 1000
+            # A mode a binding switched to after this input arrived is new to it
+            self._context[MODE_AGE] = max(0.0, (now() - self._mode_entered_at) * 1000)
 
         # A stop follows the start that fired. After an init start, only an
         # init stop fires, whenever the release comes; after a plain one,
@@ -666,7 +637,7 @@ class InputMap():
             # Record start timestamp even if input not in base_inputs
             # (the start event itself may not be mapped, only the _up/_stop)
             if self.has_dur and input_name in self.base_pairs:
-                self._start_timestamps[input_name] = time.monotonic()
+                self._start_timestamps[input_name] = now()
             return
 
         if self.has_chords:
@@ -743,7 +714,7 @@ class InputMap():
 
         # Record start timestamp for dur computation (gated)
         if self.has_dur and input_name in self.base_pairs:
-            self._start_timestamps[input_name] = time.monotonic()
+            self._start_timestamps[input_name] = now()
 
 # todo: try using the user's direct reference instead
 input_map_saved = InputMap()
@@ -761,9 +732,8 @@ def input_map_throttle(time_ms: int, single_input: str, command: callable, throt
     command()
 
     def unthrottle():
-        with state_lock:
-            throttle_busy[single_input] = False
-    cron.after(f"{time_ms}ms", unthrottle)
+        throttle_busy[single_input] = False
+    _after(time_ms, unthrottle, fires_bindings=False)
 
 def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: dict):
     """Debounce. For start/stop pairs, if the counterpart has a pending debounce
@@ -793,6 +763,9 @@ def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: 
 
     debounce_busy[id] = _after(f"{time_ms}ms", _fire)
 
+# Swapped by tests
+_context_map = lambda: actions.user.input_map()
+
 def input_map_run(job, source: str):
     """`input_map_run`'s default: the job here, on the thread that handed it over"""
     job()
@@ -817,9 +790,11 @@ def input_map_handle(
             input_map_saved.setup(input_map)
         input_map_saved.lookup(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
+    at = time.monotonic()
+
     def job():
-        input_map = actions.user.input_map()
-        locked(lambda: lookup(input_map))
+        input_map = _context_map()
+        locked(lambda: lookup(input_map), at)
     run_job(job, "input")
 
 def input_map_event_register(on_input: callable):

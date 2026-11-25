@@ -3,10 +3,15 @@ Parsing, validation, and categorization for input_map.
 This module handles setup-time processing (cold path).
 """
 import re
+import heapq
 import inspect
 import functools
+import itertools
+import math
 import threading
-from talon import actions
+import time
+import traceback
+from talon import actions, cron
 
 # Key syntax. The parser and input_map_types() both read these.
 
@@ -404,9 +409,16 @@ def key_options(key: str) -> dict:
 #
 # Each input is one job through `input_map_run(job, source)`, which a package
 # can override to run jobs on threads of its own: its lookup, then what it
-# fires. A delayed fire of input-map's own looks up at once on cron, when it's
-# due, so the next input never lands ahead of it. Only the bindings it fires
-# are a "timer" job (`looked_up`).
+# fires. An input is timed when it arrives, on the thread that hands it over
+# (`at`), not when its job runs: its duration, its mode's age, a combo's
+# window.
+#
+# A delayed fire of input-map's own (`after`) keeps its deadline. It looks up
+# on cron when it's due. Cron can be late, held by a slow binding or game
+# step, so any lookup that finds a fire overdue, due before its own time,
+# runs that fire's lookup first, in deadline order. The next input never
+# cancels a fire that was due before it arrived, nor joins it into a combo.
+# The bindings a fire fires are a "timer" job.
 
 state_lock = threading.RLock()
 _local = threading.local()
@@ -414,11 +426,19 @@ _local = threading.local()
 # Swapped by tests
 _run_coroutine = lambda coroutine: actions.user.input_map_run_coroutine(coroutine)
 _run_job = lambda job, source: actions.user.input_map_run(job, source)
+_cron_after = lambda ms, fn: cron.after(ms, fn)
+_cron_cancel = lambda job: cron.cancel(job)
 
 def run_job(job, source: str):
     """`job` through `input_map_run`: "input" for a handle call, "timer" for
     a delayed fire of input-map's own"""
     _run_job(job, source)
+
+def now() -> float:
+    """The time of what's looked up on this thread: an input's arrival, a
+    delayed fire's deadline. Outside a lookup, `time.monotonic()`."""
+    at = getattr(_local, "at", None)
+    return time.monotonic() if at is None else at
 
 def fire(call):
     """`call()` once the lookup running on this thread lets go of the lock,
@@ -429,33 +449,104 @@ def fire(call):
     else:
         fires.append(call)
 
-def looked_up(fn) -> list:
-    """`fn()` under the lock now, and what it fired, to run later and
-    elsewhere: a delayed fire's lookup on cron"""
-    outer = getattr(_local, "fires", None)
-    fires = _local.fires = []
-    try:
-        with state_lock:
-            fn()
-    finally:
-        _local.fires = outer
-    return fires
+def _run_fires(fires: list):
+    """Each call in order. One that raises is printed, and the rest still run."""
+    for call in fires:
+        try:
+            call()
+        except Exception:
+            print(f"input_map: a binding raised:\n{traceback.format_exc()}")
 
-def locked(fn):
-    """`fn()` under the lock, then what it fired, outside it. Inside another
+def locked(fn, at: float = None):
+    """`fn()` under the lock, then what it fired, outside it. `at`: when
+    what it looks up happened, an input's arrival, now when left out.
+    Delayed fires due by then run their lookups first. Inside another
     lookup, the outer one runs what this fires."""
     if getattr(_local, "fires", None) is not None:
         with state_lock:
             return fn()
     fires = _local.fires = []
+    _local.at = time.monotonic() if at is None else at
     try:
         with state_lock:
+            _run_overdue(_local.at)
             result = fn()
     finally:
         _local.fires = None
-    for call in fires:
-        call()
+        _local.at = None
+    _run_fires(fires)
     return result
+
+# Delayed fires
+
+class Timer:
+    """A delayed fire of input-map's own, on Talon's cron. It runs once:
+    when due on cron, or sooner from a lookup that finds it overdue. A
+    cancel holds even once cron has fired it, until its lookup has the
+    lock."""
+    __slots__ = ("deadline", "lookup", "fires_bindings", "cancelled", "job", "order")
+
+    def __init__(self, deadline: float, lookup, fires_bindings: bool, order: int):
+        self.deadline = deadline
+        self.lookup = lookup
+        self.fires_bindings = fires_bindings
+        self.cancelled = False
+        self.job = None
+        self.order = order
+
+    def __lt__(self, other):
+        return (self.deadline, self.order) < (other.deadline, other.order)
+
+# Delayed fires not yet run or dropped, by deadline. Under the lock.
+_timers = []
+_timer_order = itertools.count()
+
+def after(ms, fn, fires_bindings: bool = True) -> Timer:
+    """Under the lock: `fn()` under the lock `ms` after what's looked up now
+    (`now`), unless cancelled first (`cancel`). The bindings it fires are a
+    "timer" job through `input_map_run`. One that only changes state fires
+    none."""
+    if isinstance(ms, str):
+        ms = float(ms[:-2]) if ms.endswith("ms") else float(ms[:-1]) * 1000
+    timer = Timer(now() + ms / 1000, fn, fires_bindings, next(_timer_order))
+    heapq.heappush(_timers, timer)
+    left_ms = max(0, math.ceil((timer.deadline - time.monotonic()) * 1000))
+    timer.job = _cron_after(f"{left_ms}ms", lambda: _due(timer))
+    return timer
+
+def cancel(timer):
+    """Under the lock. A timer's lookup still to run does nothing."""
+    if timer:
+        timer.cancelled = True
+        _cron_cancel(timer.job)
+
+def _due(timer):
+    """On cron, when `timer` is due: it and every fire due before it,
+    overdue, in deadline order, then what they fired"""
+    locked(lambda: None, at=max(time.monotonic(), timer.deadline))
+
+def _run_overdue(at: float):
+    """Under the lock: the lookup of each fire due by `at`, in deadline
+    order, each timed at its deadline. Its bindings go out as a "timer"
+    job once the lock is let go, before the rest of what's looked up."""
+    while _timers and _timers[0].deadline <= at:
+        timer = heapq.heappop(_timers)
+        if timer.cancelled:
+            continue
+        timer.cancelled = True
+        fires, before = [], (_local.fires, _local.at)
+        _local.fires, _local.at = fires, timer.deadline
+        try:
+            timer.lookup()
+        except Exception:
+            print(f"input_map: a delayed fire raised:\n{traceback.format_exc()}")
+        finally:
+            _local.fires, _local.at = before
+        if fires and timer.fires_bindings:
+            fire(lambda fires=fires: run_job(lambda: _run_fires(fires), "timer"))
+        else:
+            for call in fires:
+                fire(call)
 
 def _call_binding(fn, args, kwargs):
     result = fn(*args, **kwargs)
