@@ -3137,6 +3137,30 @@ def test_run_raising_binding():
         _channel_callbacks.pop(channel, None)
     print("  ✓ Said, the rest of its job still runs, and the next input runs as usual")
 
+    class Stop(BaseException):
+        pass
+
+    def stop():
+        raise Stop()
+    channel_register(channel, {"pop": ("stop", stop), "hiss": ("hiss", lambda: heard.append("hiss"))})
+    channel_event_register(channel, lambda event: heard.append(event.input))
+    heard.clear()
+    try:
+        try:
+            with _jobs_here():
+                channel_handle(channel, "pop")
+            assert False, "Failed: the BaseException wasn't raised"
+        except Stop:
+            pass
+        assert heard == ["pop"], f"Failed: the event after it was dropped, got {heard}"
+        assert getattr(input_map_parse._local, "fires", None) is None, "Failed: fires left set"
+        channel_handle(channel, "hiss")
+        assert heard == ["pop", "hiss", "hiss"], f"Failed: got {heard}"
+    finally:
+        channel_unregister(channel)
+        _channel_callbacks.pop(channel, None)
+    print("  ✓ A BaseException: the rest of its job still runs, then it's raised")
+
     print()
 
 def test_async_default_runner():

@@ -450,12 +450,20 @@ def fire(call):
         fires.append(call)
 
 def _run_fires(fires: list):
-    """Each call in order. One that raises is printed, and the rest still run."""
+    """Each call in order. One that raises an `Exception` is printed, and the
+    rest still run. The rest run past a `BaseException` too, and the first
+    is raised again once they have."""
+    raised = None
     for call in fires:
         try:
             call()
         except Exception:
             print(f"input_map: a binding raised:\n{traceback.format_exc()}")
+        except BaseException as e:
+            if raised is None:
+                raised = e
+    if raised is not None:
+        raise raised
 
 def locked(fn, at: float = None):
     """`fn()` under the lock, then what it fired, outside it. `at`: when
