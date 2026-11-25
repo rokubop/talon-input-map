@@ -160,7 +160,7 @@ parrot(pop): user.input_map_handle("pop")
 ```
 A binding can be an `async def`. It runs if a package overrides `user.input_map_run_coroutine`, else prints.
 
-Each input, and each of input-map's own delayed fires (a combo's, a debounce's, a hold stage's), is a job through `user.input_map_run(job, source)`, `source` "input" or "timer". The default runs it in place. A package can override it to run jobs on threads of its own. input-map changes its state under a lock of its own, never held while a binding runs, so a binding can switch modes and inputs from other threads go on meanwhile.
+Each input is a job through `user.input_map_run(job, source)`, `source` "input": it looks up what fires, then runs those bindings. Each of input-map's own delayed fires (a combo's, a debounce's, a hold stage's) looks up on Talon's cron when it's due, and the bindings it fires are a job with `source` "timer". The default runs a job in place. A package can override it to run jobs on threads of its own. input-map changes its state under a lock of its own, never held while a binding runs, so a binding can switch modes and inputs from other threads go on meanwhile.
 
 **Combo**
 ```talon

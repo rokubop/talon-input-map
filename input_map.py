@@ -29,6 +29,7 @@ from .input_map_parse import (
     RELEASE_SUFFIXES,
     state_lock,
     locked,
+    looked_up,
     fire,
     run_job,
 )
@@ -41,7 +42,7 @@ event_subscribers = []
 
 class _Timer:
     """A delayed fire of input-map's own, on Talon's cron. A cancel holds even
-    once cron has fired it, while its lookup still waits its turn."""
+    once cron has fired it, until its lookup has the lock."""
     __slots__ = ("job", "cancelled")
 
     def __init__(self):
@@ -50,8 +51,9 @@ class _Timer:
 
 def _after(ms: str, fn, fires_bindings: bool = True) -> _Timer:
     """`fn()` under the lock after `ms`, unless cancelled first (`_cancel`).
-    One that can fire a binding is a "timer" job through `input_map_run`.
-    One that only changes state runs on cron."""
+    Its lookup runs on cron when it's due, so the next input can't cancel it
+    late or join it into a combo. The bindings it fires are a "timer" job
+    through `input_map_run`. One that only changes state fires none."""
     timer = _Timer()
 
     def lookup():
@@ -59,10 +61,15 @@ def _after(ms: str, fn, fires_bindings: bool = True) -> _Timer:
             fn()
 
     def due():
-        if fires_bindings:
-            run_job(lambda: locked(lookup), "timer")
+        fires = looked_up(lookup)
+        if fires and fires_bindings:
+            def bindings():
+                for call in fires:
+                    call()
+            run_job(bindings, "timer")
         else:
-            locked(lookup)
+            for call in fires:
+                call()
     timer.job = cron.after(ms, due)
     return timer
 

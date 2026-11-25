@@ -402,9 +402,11 @@ def key_options(key: str) -> dict:
 # for later (`fire`). They run in order once the lock is let go, so a binding
 # can switch modes, and other sources run side by side meanwhile.
 #
-# Each input, and each of input-map's own delayed fires, is one job through
-# `input_map_run(job, source)`, which a package can override to run jobs on
-# threads of its own.
+# Each input is one job through `input_map_run(job, source)`, which a package
+# can override to run jobs on threads of its own: its lookup, then what it
+# fires. A delayed fire of input-map's own looks up at once on cron, when it's
+# due, so the next input never lands ahead of it. Only the bindings it fires
+# are a "timer" job (`looked_up`).
 
 state_lock = threading.RLock()
 _local = threading.local()
@@ -426,6 +428,18 @@ def fire(call):
         call()
     else:
         fires.append(call)
+
+def looked_up(fn) -> list:
+    """`fn()` under the lock now, and what it fired, to run later and
+    elsewhere: a delayed fire's lookup on cron"""
+    outer = getattr(_local, "fires", None)
+    fires = _local.fires = []
+    try:
+        with state_lock:
+            fn()
+    finally:
+        _local.fires = outer
+    return fires
 
 def locked(fn):
     """`fn()` under the lock, then what it fired, outside it. Inside another
