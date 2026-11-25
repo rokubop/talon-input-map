@@ -1,5 +1,7 @@
-from talon import actions
-from .input_map import InputMap, input_map_saved, input_map_mode_revert, input_map_run_coroutine
+from talon import actions, cron
+from .input_map import (InputMap, input_map_saved, input_map_mode_revert, input_map_run_coroutine,
+                        input_map_handle, input_map_reset)
+from . import input_map as input_map_core
 from . import input_map_parse
 from .input_map_parse import (
     execute_variable_action,
@@ -51,7 +53,9 @@ from .input_map_single import (
 )
 import contextlib
 import io
+import queue
 import threading
+import time
 
 def _load(config):
     """Set up a map. Returns it and what setup printed, where bad keys are reported."""
@@ -2970,6 +2974,171 @@ def test_lock_lookup_reads_one_mode():
 
     print()
 
+def _cron_held(from_ms: int, for_ms: int) -> threading.Event:
+    """Talon's cron busy `for_ms` from `from_ms` on, as a slow binding or
+    game step holds it. Set the event to free it sooner."""
+    free = threading.Event()
+    cron.after(f"{from_ms}ms", lambda: free.wait(for_ms / 1000))
+    return free
+
+def test_run_overdue_fire_decided_first():
+    print("Testing a delayed fire cron runs late, decided by the next input first...")
+
+    calls = []
+    input_map, printed = _load({
+        "pop": ("pop", lambda: calls.append("pop")),
+        "pop pop": ("double", lambda: calls.append("double")),
+    })
+    _assert_clean(printed)
+    input_map.combo_window = "300ms"
+    free = _cron_held(200, 400)
+    try:
+        input_map.execute("pop")
+        actions.sleep("450ms")
+        assert calls == [], f"Failed: cron was busy, got {calls}"
+        input_map.execute("pop")
+        assert calls == ["pop"], f"Failed: the first pop's fire wasn't decided first, got {calls}"
+    finally:
+        free.set()
+    actions.sleep("500ms")
+    assert calls == ["pop", "pop"], f"Failed: got {calls}"
+    print("  ✓ A second pop past the window, cron late: two pops, never a combo")
+
+    calls.clear()
+    input_map, printed = _load({
+        "hiss:dur>=100": ("stage", lambda: calls.append("stage")),
+        "hiss_stop": ("stop", lambda: calls.append("stop")),
+    })
+    _assert_clean(printed)
+    free = _cron_held(50, 350)
+    try:
+        input_map.execute("hiss")
+        actions.sleep("250ms")
+        assert calls == [], f"Failed: cron was busy, got {calls}"
+        input_map.execute("hiss_stop")
+        assert calls == ["stage", "stop"], f"Failed: got {calls}"
+    finally:
+        free.set()
+    actions.sleep("150ms")
+    assert calls == ["stage", "stop"], f"Failed: got {calls}"
+    print("  ✓ A stop past a hold stage's time, cron late: the stage, then the stop")
+
+    print()
+
+def test_run_cancel_while_due_waits():
+    print("Testing a delayed fire cancelled while its cron run waits on the lock...")
+
+    calls = []
+    input_map, printed = _load({
+        "pop": ("pop", lambda: calls.append("pop")),
+        "pop cluck": ("combo", lambda: calls.append("combo")),
+    })
+    _assert_clean(printed)
+    input_map.combo_window = "300ms"
+    input_map.execute("pop")
+    actions.sleep("250ms")
+    arrived = time.monotonic()
+    # Held past the deadline: cron's run of the fire waits on the lock
+    with input_map_parse.state_lock:
+        actions.sleep("150ms")
+        input_map.execute("cluck", at=arrived)
+    actions.sleep("100ms")
+    assert calls == ["combo"], f"Failed: got {calls}"
+    print("  ✓ A cluck that arrived inside the window makes the combo, and the fire does nothing")
+
+    print()
+
+@contextlib.contextmanager
+def _jobs_queued():
+    """Each job on one queue of its own, in order, as a package's
+    input_map_run may run them. Done once the queue has run them all."""
+    jobs = queue.Queue()
+
+    def loop():
+        while True:
+            job = jobs.get()
+            if job is None:
+                return
+            job()
+    worker = threading.Thread(target=loop, daemon=True)
+    worker.start()
+    saved = input_map_parse._run_job
+    input_map_parse._run_job = lambda job, source: jobs.put(job)
+    try:
+        yield
+    finally:
+        input_map_parse._run_job = saved
+        jobs.put(None)
+        worker.join(5)
+
+def test_run_timed_on_arrival():
+    print("Testing an input timed when it arrives, not when its queue reaches it...")
+
+    calls = []
+    input_map, printed = _load({
+        "hiss": ("slow", lambda: time.sleep(0.5)),
+        "hiss_stop:dur<300": ("brief", lambda: calls.append("brief")),
+        "hiss_stop:dur>=300": ("sustained", lambda: calls.append("sustained")),
+    })
+    _assert_clean(printed)
+    with _jobs_queued():
+        input_map.execute("hiss")
+        actions.sleep("200ms")
+        input_map.execute("hiss_stop")
+    assert calls == ["brief"], f"Failed: got {calls}"
+    print("  ✓ A stop at 200ms behind a 500ms binding is dur<300")
+
+    print()
+
+def test_run_handle_job():
+    print("Testing input_map_handle's own job...")
+
+    calls = []
+    config = {"pop": ("pop", lambda: calls.append("pop"))}
+    saved = input_map_core._context_map
+    reads = []
+    input_map_core._context_map = lambda: (reads.append(True), config)[1]
+    try:
+        with _jobs_kept() as kept:
+            input_map_handle("pop")
+            assert [source for source, _ in kept] == ["input"] and calls == [] and reads == [], \
+                f"Failed: got {kept}, {calls}, {reads}"
+            with contextlib.redirect_stdout(io.StringIO()):
+                kept.pop()[1]()
+        assert calls == ["pop"] and reads == [True], f"Failed: got {calls}, {reads}"
+    finally:
+        input_map_core._context_map = saved
+        input_map_reset()
+    print("  ✓ One \"input\" job: the map is read and looked up when it runs")
+
+    print()
+
+def test_run_raising_binding():
+    print("Testing a binding that raises...")
+
+    channel = "_test_run_raises"
+    heard = []
+
+    def boom():
+        raise RuntimeError("from the binding")
+    channel_register(channel, {"pop": ("boom", boom), "hiss": ("hiss", lambda: heard.append("hiss"))})
+    channel_event_register(channel, lambda event: heard.append(event.input))
+    printed = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(printed):
+            channel_handle(channel, "pop")
+        assert "from the binding" in printed.getvalue(), f"Failed: got {printed.getvalue()}"
+        assert heard == ["pop"], f"Failed: the event after it was dropped, got {heard}"
+        assert getattr(input_map_parse._local, "fires", None) is None, "Failed: fires left set"
+        channel_handle(channel, "hiss")
+        assert heard == ["pop", "hiss", "hiss"], f"Failed: got {heard}"
+    finally:
+        channel_unregister(channel)
+        _channel_callbacks.pop(channel, None)
+    print("  ✓ Said, the rest of its job still runs, and the next input runs as usual")
+
+    print()
+
 def test_async_default_runner():
     print("Testing the default coroutine runner...")
 
@@ -3164,6 +3333,11 @@ def _run_tests():
     test_run_timer_decided_when_due()
     test_lock_mode_switch_from_a_binding()
     test_lock_lookup_reads_one_mode()
+    test_run_overdue_fire_decided_first()
+    test_run_cancel_while_due_waits()
+    test_run_timed_on_arrival()
+    test_run_handle_job()
+    test_run_raising_binding()
 
     failed = run_key_behavior_tests()
     bench()
