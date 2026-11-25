@@ -5,6 +5,7 @@ This module handles setup-time processing (cold path).
 import re
 import inspect
 import functools
+import threading
 from talon import actions
 
 # Key syntax. The parser and input_map_types() both read these.
@@ -392,23 +393,66 @@ def key_options(key: str) -> dict:
                        if (bool(out["conditions"]) if seg_id == "condition" else ok(f"{key}:{seg_id}"))]
     return out
 
+# Running inputs and bindings
+#
+# input-map's state (modes, channels, singles, combos waiting, throttle and
+# debounce flags) is read and changed under `state_lock`, never while a
+# binding runs. Inputs come from parrot, noise, pedal, voice and cron threads
+# at once. A lookup (`locked`) holds the lock and keeps the bindings it fires
+# for later (`fire`). They run in order once the lock is let go, so a binding
+# can switch modes, and other sources run side by side meanwhile.
+#
+# Each input, and each of input-map's own delayed fires, is one job through
+# `input_map_run(job, source)`, which a package can override to run jobs on
+# threads of its own.
+
+state_lock = threading.RLock()
+_local = threading.local()
+
 # Swapped by tests
 _run_coroutine = lambda coroutine: actions.user.input_map_run_coroutine(coroutine)
-_run_binding = lambda binding: actions.user.input_map_run_binding(binding)
+_run_job = lambda job, source: actions.user.input_map_run(job, source)
 
-def run_binding_here(binding):
-    """`input_map_run_binding`'s default: the binding on this thread, a
-    coroutine it returns to the runner."""
-    result = binding()
+def run_job(job, source: str):
+    """`job` through `input_map_run`: "input" for a handle call, "timer" for
+    a delayed fire of input-map's own"""
+    _run_job(job, source)
+
+def fire(call):
+    """`call()` once the lookup running on this thread lets go of the lock,
+    in the order fired. Outside a lookup, now."""
+    fires = getattr(_local, "fires", None)
+    if fires is None:
+        call()
+    else:
+        fires.append(call)
+
+def locked(fn):
+    """`fn()` under the lock, then what it fired, outside it. Inside another
+    lookup, the outer one runs what this fires."""
+    if getattr(_local, "fires", None) is not None:
+        with state_lock:
+            return fn()
+    fires = _local.fires = []
+    try:
+        with state_lock:
+            result = fn()
+    finally:
+        _local.fires = None
+    for call in fires:
+        call()
+    return result
+
+def _call_binding(fn, args, kwargs):
+    result = fn(*args, **kwargs)
     if inspect.iscoroutine(result):
         _run_coroutine(result)
 
 def _runs_coroutines(fn):
-    """A binding goes through `input_map_run_binding`, which a package can
-    override to run it elsewhere. A coroutine it returns, an async def's,
-    goes to the runner."""
+    """A binding fired in a lookup runs once the lock is let go (`fire`). A
+    coroutine it returns, an async def's, goes to the runner."""
     def run(*args, **kwargs):
-        _run_binding(lambda: fn(*args, **kwargs))
+        fire(lambda: _call_binding(fn, args, kwargs))
     try:
         functools.update_wrapper(run, fn)
     except Exception:

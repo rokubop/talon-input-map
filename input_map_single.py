@@ -4,9 +4,12 @@ Lightweight single-input InputMap API.
 Unlike the full input_map (context-based) or channels (explicitly registered),
 input_map_single provides a minimal way to make a single input mode-aware.
 Auto-registers on first call; re-registers if the map reference changes.
+
+The registry and each single's state are read and changed under input-map's
+lock (`state_lock`).
 """
 from .input_map import InputMap, input_map_event_trigger
-from .input_map_parse import build_legend
+from .input_map_parse import build_legend, state_lock
 
 # Registry of name -> InputMap instance
 _singles: dict[str, InputMap] = {}
@@ -40,7 +43,7 @@ def normalize_single_map(name: str, user_map: dict) -> dict:
 
 
 def _register_single(name: str, user_map: dict):
-    """Create and register an InputMap instance for a single input."""
+    """Create and register an InputMap instance for a single input. Under the lock."""
     normalized = normalize_single_map(name, user_map)
     modes = list(normalized.keys())
     first_mode = modes[0]
@@ -69,61 +72,67 @@ def single_handle(
     y: float = None,
     value: float = None
 ):
-    """Main entry point for single input handling."""
-    if name not in _singles or _singles_map_ref[name] is not user_map:
-        _register_single(name, user_map)
+    """Main entry point for single input handling, as an "input" job."""
+    with state_lock:
+        if name not in _singles or _singles_map_ref[name] is not user_map:
+            _register_single(name, user_map)
+        instance = _singles[name]
 
-    _singles[name].execute(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+    instance.execute(name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
 
 def single_mode_set(name: str, mode: str, user_map: dict = None):
     """Set the mode for a single input. Optionally pass user_map to auto-register."""
-    if name not in _singles:
-        if user_map is not None:
+    with state_lock:
+        if name not in _singles:
+            if user_map is not None:
+                _register_single(name, user_map)
+            else:
+                raise ValueError(f"Single '{name}' not registered")
+        elif user_map is not None and _singles_map_ref[name] is not user_map:
             _register_single(name, user_map)
+        instance = _singles[name]
+        if mode in instance.input_map_user_ref:
+            instance.setup_mode(mode)
         else:
-            raise ValueError(f"Single '{name}' not registered")
-    elif user_map is not None and _singles_map_ref[name] is not user_map:
-        _register_single(name, user_map)
-    instance = _singles[name]
-    if mode in instance.input_map_user_ref:
-        instance.setup_mode(mode)
-    else:
-        raise ValueError(f"Mode '{mode}' not found in single '{name}'")
+            raise ValueError(f"Mode '{mode}' not found in single '{name}'")
 
 
 def single_mode_get(name: str) -> str:
     """Get the current mode for a single input."""
-    if name not in _singles:
-        raise ValueError(f"Single '{name}' not registered")
-    return _singles[name].current_mode
+    with state_lock:
+        if name not in _singles:
+            raise ValueError(f"Single '{name}' not registered")
+        return _singles[name].current_mode
 
 
 def single_mode_cycle(name: str) -> str:
     """Cycle to the next mode for a single input."""
-    if name not in _singles:
-        raise ValueError(f"Single '{name}' not registered")
-    instance = _singles[name]
-    modes = _singles_mode_order[name]
-    current_mode = instance.current_mode
-    if current_mode in modes:
-        current_index = modes.index(current_mode)
-        next_index = (current_index + 1) % len(modes)
-        next_mode = modes[next_index]
-        instance.setup_mode(next_mode)
-        return next_mode
-    else:
-        raise ValueError(f"Mode '{current_mode}' not found in single '{name}'")
+    with state_lock:
+        if name not in _singles:
+            raise ValueError(f"Single '{name}' not registered")
+        instance = _singles[name]
+        modes = _singles_mode_order[name]
+        current_mode = instance.current_mode
+        if current_mode in modes:
+            current_index = modes.index(current_mode)
+            next_index = (current_index + 1) % len(modes)
+            next_mode = modes[next_index]
+            instance.setup_mode(next_mode)
+            return next_mode
+        else:
+            raise ValueError(f"Mode '{current_mode}' not found in single '{name}'")
 
 
 def single_mode_revert(name: str) -> str:
     """Revert to the previous mode for a single input."""
-    if name not in _singles:
-        raise ValueError(f"Single '{name}' not registered")
-    instance = _singles[name]
-    if instance.previous_mode is not None:
-        instance.setup_mode(instance.previous_mode)
-    return instance.current_mode
+    with state_lock:
+        if name not in _singles:
+            raise ValueError(f"Single '{name}' not registered")
+        instance = _singles[name]
+        if instance.previous_mode is not None:
+            instance.setup_mode(instance.previous_mode)
+        return instance.current_mode
 
 
 def single_get_legend(name: str, user_map: dict, mode: str = None) -> dict[str, str]:
@@ -131,14 +140,15 @@ def single_get_legend(name: str, user_map: dict, mode: str = None) -> dict[str, 
 
     Returns {input: label}. Bases with several bindings keep a readable modifier.
     """
-    if name not in _singles or _singles_map_ref[name] is not user_map:
-        _register_single(name, user_map)
+    with state_lock:
+        if name not in _singles or _singles_map_ref[name] is not user_map:
+            _register_single(name, user_map)
 
-    instance = _singles[name]
-    normalized = instance.input_map_user_ref
+        instance = _singles[name]
+        normalized = instance.input_map_user_ref
 
-    if mode is None:
-        mode = instance.current_mode
+        if mode is None:
+            mode = instance.current_mode
 
     if mode not in normalized:
         raise ValueError(f"Mode '{mode}' not found in single '{name}'")

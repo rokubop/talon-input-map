@@ -27,7 +27,10 @@ from .input_map_parse import (
     set_default_init_window,
     MODE_AGE,
     RELEASE_SUFFIXES,
-    run_binding_here,
+    state_lock,
+    locked,
+    fire,
+    run_job,
 )
 
 mod = Module()
@@ -35,6 +38,46 @@ mod = Module()
 _REGION_ELSE = -1
 
 event_subscribers = []
+
+class _Timer:
+    """A delayed fire of input-map's own, on Talon's cron. A cancel holds even
+    once cron has fired it, while its lookup still waits its turn."""
+    __slots__ = ("job", "cancelled")
+
+    def __init__(self):
+        self.job = None
+        self.cancelled = False
+
+def _after(ms: str, fn, fires_bindings: bool = True) -> _Timer:
+    """`fn()` under the lock after `ms`, unless cancelled first (`_cancel`).
+    One that can fire a binding is a "timer" job through `input_map_run`.
+    One that only changes state runs on cron."""
+    timer = _Timer()
+
+    def lookup():
+        if not timer.cancelled:
+            fn()
+
+    def due():
+        if fires_bindings:
+            run_job(lambda: locked(lookup), "timer")
+        else:
+            locked(lookup)
+    timer.job = cron.after(ms, due)
+    return timer
+
+def _cancel(timer):
+    """Under the lock. A timer's lookup still to run does nothing."""
+    if timer:
+        timer.cancelled = True
+        cron.cancel(timer.job)
+
+def _under_lock(method):
+    def run(*args, **kwargs):
+        with state_lock:
+            return method(*args, **kwargs)
+    run.__name__, run.__doc__ = method.__name__, method.__doc__
+    return run
 
 class InputMap():
     def __init__(self, input_map: dict = None, event_trigger: callable = None):
@@ -85,17 +128,16 @@ class InputMap():
             self.setup(input_map)
 
     def _trigger_event(self, input: str, label: str):
-        """Trigger event using custom callback if provided, otherwise use global."""
+        """Trigger event using custom callback if provided, otherwise use global.
+        Listeners hear it once the lookup lets go of the lock, after the binding."""
         event = InputMapEvent(
             type="input",
             mode=self.current_mode,
             input=input,
             label=label,
         )
-        if self._event_trigger:
-            self._event_trigger(event)
-        else:
-            input_map_event_trigger(event)
+        trigger = self._event_trigger or input_map_event_trigger
+        fire(lambda: trigger(event))
 
     def _hold_start(self, base: str) -> bool:
         """A start of an input with 'dur>=N' stages. Starts while already held,
@@ -104,7 +146,7 @@ class InputMap():
         for suffix in RELEASE_SUFFIXES:
             job = self._debounce_busy.get(f"{base}{suffix}")
             if job:
-                cron.cancel(job)
+                _cancel(job)
                 self._debounce_busy[f"{base}{suffix}"] = False
                 return True
         if base in self._holds:
@@ -117,7 +159,7 @@ class InputMap():
             # Other conditions on a stage read the start's context
             if conditions and not evaluate_conditions(conditions, self._context):
                 continue
-            hold["jobs"].append(cron.after(f"{ms}ms", lambda action=action: self._hold_stage(base, hold, action)))
+            hold["jobs"].append(_after(f"{ms}ms", lambda action=action: self._hold_stage(base, hold, action)))
         return False
 
     def _hold_stage(self, base: str, hold: dict, action: tuple):
@@ -133,7 +175,7 @@ class InputMap():
         if not hold:
             return False
         for job in hold["jobs"]:
-            cron.cancel(job)
+            _cancel(job)
         return hold["fired"]
 
     def _hold_gate(self, base: str, fn):
@@ -143,6 +185,7 @@ class InputMap():
                 fn()
         return gated
 
+    @_under_lock
     def setup_mode(self, mode):
         if mode:
             if mode == self.current_mode:
@@ -152,7 +195,7 @@ class InputMap():
         else:
             input_map = self.input_map_user_ref
         if self.combo_job:
-            cron.cancel(self.combo_job)
+            _cancel(self.combo_job)
             self.combo_job = None
         if self.current_mode is not None:
             self.previous_mode = self.current_mode
@@ -193,7 +236,7 @@ class InputMap():
             self._start_timestamps = {}
             self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
             for job in self._edge_debounce_jobs.values():
-                cron.cancel(job)
+                _cancel(job)
             self._edge_debounce_jobs = {}
             combo_window = settings.get("user.input_map_combo_window", 300)
             self.combo_window = f"{combo_window}ms"
@@ -233,7 +276,7 @@ class InputMap():
         self._start_timestamps = {}
         self.edge_debounce_ms = settings.get("user.input_map_edge_debounce_ms", 0)
         for job in self._edge_debounce_jobs.values():
-            cron.cancel(job)
+            _cancel(job)
         self._edge_debounce_jobs = {}
 
         self._mode_cache[mode] = categorized
@@ -241,6 +284,7 @@ class InputMap():
         combo_window = settings.get("user.input_map_combo_window", 300)
         self.combo_window = f"{combo_window}ms"
 
+    @_under_lock
     def setup(self, input_map):
         self.input_map_user_ref = input_map
         self._mode_cache = {}
@@ -256,7 +300,7 @@ class InputMap():
 
     def _delayed_combo_execute(self):
         if self.combo_job:
-            cron.cancel(self.combo_job)
+            _cancel(self.combo_job)
             self.combo_job = None
         if not self.pending_combo:
             self.combo_chain = ""
@@ -283,7 +327,7 @@ class InputMap():
 
     def _delayed_potential_combo(self):
         if self.combo_job:
-            cron.cancel(self.combo_job)
+            _cancel(self.combo_job)
             self.combo_job = None
 
         # maybe needed for variable patterns
@@ -343,7 +387,7 @@ class InputMap():
             # Cancel any pending debounce for this input_chain
             pending_job = self._edge_debounce_jobs.get(input_chain)
             if pending_job:
-                cron.cancel(pending_job)
+                _cancel(pending_job)
 
             def _apply_transition(chain=input_chain, region=new_region, action=matched_action):
                 self._edge_debounce_jobs.pop(chain, None)
@@ -356,7 +400,7 @@ class InputMap():
                 if not throttled:
                     self._trigger_event(chain, command)
 
-            self._edge_debounce_jobs[input_chain] = cron.after(
+            self._edge_debounce_jobs[input_chain] = _after(
                 f"{self.edge_debounce_ms}ms", _apply_transition
             )
             return True
@@ -431,15 +475,15 @@ class InputMap():
 
     def _prepare_delayed_command(self):
         self.pending_combo = self.combo_chain
-        self.combo_job = cron.after(self.combo_window, self._delayed_combo_execute)
+        self.combo_job = _after(self.combo_window, self._delayed_combo_execute)
 
     def _execute_delayed_variable_command(self):
         self.pending_combo = self.combo_chain
-        self.combo_job = cron.after(self.combo_window, self._delayed_combo_execute_variable)
+        self.combo_job = _after(self.combo_window, self._delayed_combo_execute_variable)
 
     def _delayed_combo_execute_variable(self):
         if self.combo_job:
-            cron.cancel(self.combo_job)
+            _cancel(self.combo_job)
             self.combo_job = None
         # Try to match the pending combo against delayed variable patterns
         matched = self._try_variable_patterns(self.pending_combo, self.delayed_variable_patterns)
@@ -478,7 +522,7 @@ class InputMap():
     def _execute_single_immediate_command(self, input: str):
         if self.pending_combo:
             self._delayed_combo_execute()
-            actions.sleep("20ms")
+            fire(lambda: actions.sleep("20ms"))
         action_tuple = self.immediate_commands[input]
         command = action_tuple[0]
         action_func = action_tuple[1]
@@ -530,7 +574,7 @@ class InputMap():
         return False
 
     def _execute_potential_combo(self):
-        self.combo_job = cron.after(self.combo_window, self._delayed_potential_combo)
+        self.combo_job = _after(self.combo_window, self._delayed_potential_combo, fires_bindings=False)
 
     def execute(
         self,
@@ -543,6 +587,24 @@ class InputMap():
         y: float = None,
         value: float = None
     ):
+        """An input, as an "input" job through `input_map_run`: its lookup
+        under the lock, then the bindings it fired."""
+        run_job(lambda: locked(lambda: self.lookup(input_name, power=power, f0=f0, f1=f1, f2=f2,
+                                                   x=x, y=y, value=value)), "input")
+
+    def lookup(
+        self,
+        input_name: str,
+        power: float = None,
+        f0: float = None,
+        f1: float = None,
+        f2: float = None,
+        x: float = None,
+        y: float = None,
+        value: float = None
+    ):
+        """An input's state changes, under the lock (`locked`). The bindings
+        it fires run once the lock is let go."""
         # Compute dur if this input map uses dur conditions
         if self.has_dur:
             dur = None
@@ -616,16 +678,16 @@ class InputMap():
             stop_busy = self._debounce_busy.get(f"{input_name}_stop")
             up_busy = self._debounce_busy.get(f"{input_name}_up")
             if stop_busy:
-                cron.cancel(stop_busy)
+                _cancel(stop_busy)
                 self._debounce_busy[f"{input_name}_stop"] = False
                 return
             if up_busy:
-                cron.cancel(up_busy)
+                _cancel(up_busy)
                 self._debounce_busy[f"{input_name}_up"] = False
                 return
 
         if self.combo_job:
-            cron.cancel(self.combo_job)
+            _cancel(self.combo_job)
             self.combo_job = None
 
         self.combo_chain = self.combo_chain + f" {input_name}" if self.combo_chain else input_name
@@ -660,7 +722,7 @@ class InputMap():
         elif self.has_conditions and input_name in self.immediate_conditional:
             if self.pending_combo:
                 self._delayed_combo_execute()
-                actions.sleep("20ms")
+                fire(lambda: actions.sleep("20ms"))
             matched = self._dispatch_conditional(input_name, self.immediate_conditional)
             if not matched and input_name in self.immediate_commands:
                 self._execute_single_immediate_command(input_name)
@@ -680,22 +742,28 @@ class InputMap():
 input_map_saved = InputMap()
 
 def input_map_reset():
-    input_map_saved.input_map_user_ref = None
-    input_map_saved._mode_cache = {}
+    with state_lock:
+        input_map_saved.input_map_user_ref = None
+        input_map_saved._mode_cache = {}
 
 def input_map_throttle(time_ms: int, single_input: str, command: callable, throttle_busy: dict):
-    """Throttle the command once every time_ms"""
+    """Throttle the command once every time_ms. Under the lock."""
     if throttle_busy.get(single_input):
         return
     throttle_busy[single_input] = True
     command()
-    cron.after(f"{time_ms}ms", lambda: throttle_busy.__setitem__(single_input, False))
+
+    def unthrottle():
+        with state_lock:
+            throttle_busy[single_input] = False
+    cron.after(f"{time_ms}ms", unthrottle)
 
 def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: dict):
     """Debounce. For start/stop pairs, if the counterpart has a pending debounce
-    when this one fires, cancel both (the pair was too brief to count)."""
+    when this one fires, cancel both (the pair was too brief to count). Under
+    the lock."""
     if debounce_busy.get(id):
-        cron.cancel(debounce_busy[id])
+        _cancel(debounce_busy[id])
 
     def _fire():
         if id.endswith("_stop"):
@@ -709,17 +777,18 @@ def input_map_debounce(time_ms: int, id: str, command: callable, debounce_busy: 
         for cp in counterparts:
             pending = debounce_busy.get(cp)
             if pending:
-                cron.cancel(pending)
+                _cancel(pending)
                 debounce_busy[cp] = False
                 debounce_busy[id] = False
                 return
         command()
         debounce_busy[id] = False
 
-    debounce_busy[id] = cron.after(f"{time_ms}ms", _fire)
+    debounce_busy[id] = _after(f"{time_ms}ms", _fire)
 
-def input_map_run_binding(binding):
-    run_binding_here(binding)
+def input_map_run(job, source: str):
+    """`input_map_run`'s default: the job here, on the thread that handed it over"""
+    job()
 
 def input_map_run_coroutine(coroutine):
     print(f"input_map: async def {coroutine.__qualname__} didn't run: no package here runs async bindings")
@@ -735,66 +804,80 @@ def input_map_handle(
     y: float = None,
     value: float = None
 ):
-    input_map = actions.user.input_map()
-    if input_map_saved.input_map_user_ref != input_map:
-        print("init input map")
-        input_map_saved.setup(input_map)
+    def lookup(input_map):
+        if input_map_saved.input_map_user_ref != input_map:
+            print("init input map")
+            input_map_saved.setup(input_map)
+        input_map_saved.lookup(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
 
-    input_map_saved.execute(input_name, power=power, f0=f0, f1=f1, f2=f2, x=x, y=y, value=value)
+    def job():
+        input_map = actions.user.input_map()
+        locked(lambda: lookup(input_map))
+    run_job(job, "input")
 
 def input_map_event_register(on_input: callable):
-    event_subscribers.append(on_input)
+    with state_lock:
+        event_subscribers.append(on_input)
 
 def input_map_event_unregister(on_input: callable):
-    try:
-        event_subscribers.remove(on_input)
-    except ValueError:
-        # we may have lost the reference
-        # see if the callback looks like one of the subscribers
-        for subscriber in event_subscribers:
-            if subscriber.__name__ == on_input.__name__:
-                event_subscribers.remove(subscriber)
-                break
+    with state_lock:
+        try:
+            event_subscribers.remove(on_input)
+        except ValueError:
+            # we may have lost the reference
+            # see if the callback looks like one of the subscribers
+            for subscriber in event_subscribers:
+                if subscriber.__name__ == on_input.__name__:
+                    event_subscribers.remove(subscriber)
+                    break
 
 def input_map_event_trigger(event: InputMapEvent):
-    for on_input_subscriber in event_subscribers:
+    with state_lock:
+        subscribers = list(event_subscribers)
+    for on_input_subscriber in subscribers:
         on_input_subscriber(event)
 
+def _mode_changed(mode: str):
+    """Listeners hear it once the lock is let go"""
+    fire(lambda: input_map_event_trigger(InputMapEvent(
+        type="mode_change",
+        mode=mode,
+    )))
+
 def input_map_mode_get() -> str:
-    return input_map_saved.current_mode
+    with state_lock:
+        return input_map_saved.current_mode
+
+def _mode_set(config: dict, mode: str):
+    if mode not in config:
+        raise ValueError(f"Mode '{mode}' not found in input_map")
+    input_map_saved.setup_mode(mode)
+    _mode_changed(mode)
 
 def input_map_mode_set(mode: str):
     config = actions.user.input_map()
-    if mode in config:
-        input_map_saved.setup_mode(mode)
-        input_map_event_trigger(InputMapEvent(
-            type="mode_change",
-            mode=mode,
-        ))
-    else:
-        raise ValueError(f"Mode '{mode}' not found in input_map")
+    locked(lambda: _mode_set(config, mode))
 
 def input_map_mode_cycle() -> str:
     config = actions.user.input_map()
-    modes = list(config.keys())
-    current_mode = input_map_mode_get()
-    if current_mode in modes:
-        current_index = modes.index(current_mode)
-        next_index = (current_index + 1) % len(modes)
-        next_mode = modes[next_index]
-        input_map_mode_set(next_mode)
+
+    def cycle():
+        modes = list(config.keys())
+        current_mode = input_map_saved.current_mode
+        if current_mode not in modes:
+            raise ValueError(f"Mode '{current_mode}' not found in input_map")
+        next_mode = modes[(modes.index(current_mode) + 1) % len(modes)]
+        _mode_set(config, next_mode)
         return next_mode
-    else:
-        raise ValueError(f"Mode '{current_mode}' not found in input_map")
+    return locked(cycle)
 
 def input_map_mode_revert() -> str:
-    if input_map_saved.previous_mode is not None:
-        input_map_saved.setup_mode(input_map_saved.previous_mode)
-        input_map_event_trigger(InputMapEvent(
-            type="mode_change",
-            mode=input_map_saved.current_mode,
-        ))
-    return input_map_saved.current_mode
+    def revert():
+        if input_map_saved.previous_mode is not None:
+            input_map_saved.setup_mode(input_map_saved.previous_mode)
+            _mode_changed(input_map_saved.current_mode)
+        return input_map_saved.current_mode
+    return locked(revert)
 
 def input_map_get(mode: str = None) -> dict:
     """Get the input map dict for the current or specified mode."""

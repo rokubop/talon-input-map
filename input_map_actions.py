@@ -11,7 +11,7 @@ from .input_map import (
     input_map_get,
     input_map_reset,
     input_map_run_coroutine,
-    input_map_run_binding,
+    input_map_run,
     InputMapEvent,
     EVENT_TYPES,
 )
@@ -361,13 +361,16 @@ class Actions:
         else:
             input_map_event_trigger(event)
 
-    def input_map_run_binding(binding: object):
+    def input_map_run(job: object, source: str):
         """
-        Run a fired binding: `binding()` takes no arguments. The default runs
-        it here and hands a coroutine it returns to `input_map_run_coroutine`.
-        A package overrides this to run bindings on a thread of its own.
+        Run one of input-map's jobs: `job()` takes no arguments. `source` is
+        "input" for a handle call, "timer" for a delayed fire of input-map's
+        own: a combo's, a debounce's, a hold stage's. The job looks up what
+        fires under input-map's lock, then runs those bindings outside it.
+        The default runs it here. A package overrides this to run jobs on
+        threads of its own, keeping each source's jobs in order.
         """
-        input_map_run_binding(binding)
+        input_map_run(job, source)
 
     def input_map_run_coroutine(coroutine: object):
         """

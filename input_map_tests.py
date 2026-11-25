@@ -51,6 +51,7 @@ from .input_map_single import (
 )
 import contextlib
 import io
+import threading
 
 def _load(config):
     """Set up a map. Returns it and what setup printed, where bad keys are reported."""
@@ -2705,13 +2706,41 @@ def _handed_off():
     def run(coroutine):
         handed.append(coroutine.__name__)
         coroutine.close()
-    saved = input_map_parse._run_coroutine, input_map_parse._run_binding
+    saved = input_map_parse._run_coroutine
     input_map_parse._run_coroutine = run
-    input_map_parse._run_binding = input_map_parse.run_binding_here
     try:
-        yield handed
+        with _jobs_here():
+            yield handed
     finally:
-        input_map_parse._run_coroutine, input_map_parse._run_binding = saved
+        input_map_parse._run_coroutine = saved
+
+@contextlib.contextmanager
+def _jobs_here():
+    """input_map_run's default, whatever a package overrides it with: each
+    job runs where it's handed over"""
+    saved = input_map_parse._run_job
+    input_map_parse._run_job = lambda job, source: job()
+    try:
+        yield
+    finally:
+        input_map_parse._run_job = saved
+
+@contextlib.contextmanager
+def _jobs_kept(inputs_here: bool = False):
+    """Each job handed to input_map_run kept as (source, job), to run when the
+    test says. `inputs_here`: an "input" job runs at once."""
+    kept = []
+    def run(job, source):
+        if inputs_here and source == "input":
+            job()
+        else:
+            kept.append((source, job))
+    saved = input_map_parse._run_job
+    input_map_parse._run_job = run
+    try:
+        yield kept
+    finally:
+        input_map_parse._run_job = saved
 
 def test_async_bindings():
     print("Testing async def bindings hand off once per fire...")
@@ -2761,21 +2790,172 @@ def test_async_plain_result_untouched():
 
     print()
 
-def test_binding_goes_through_run_binding():
-    print("Testing a binding handed to input_map_run_binding...")
+def test_run_hands_over_an_input():
+    print("Testing an input handed to input_map_run...")
 
-    hopped, calls = [], []
-    saved = input_map_parse._run_binding
-    input_map_parse._run_binding = lambda binding: hopped.append(binding)
-    try:
+    calls = []
+    channel = "_test_run_input"
+    with _jobs_kept() as kept:
         input_map, _ = _load({"pop": ("x", lambda: calls.append("x"))})
-        input_map.immediate_commands["pop"][1]()
-    finally:
-        input_map_parse._run_binding = saved
-    assert len(hopped) == 1 and calls == [], f"Failed: got {hopped}, {calls}"
-    hopped[0]()
-    assert calls == ["x"], f"Failed: got {calls}"
-    print("  ✓ Handed over, runs when the runner calls it")
+        input_map.execute("pop")
+        assert [source for source, _ in kept] == ["input"] and calls == [], f"Failed: got {kept}, {calls}"
+        kept.pop()[1]()
+        assert calls == ["x"], f"Failed: got {calls}"
+        print("  ✓ One \"input\" job, and the binding runs when it does")
+
+        channel_register(channel, {"pop": ("y", lambda: calls.append("y"))})
+        try:
+            channel_handle(channel, "pop")
+            assert [source for source, _ in kept] == ["input"] and calls == ["x"], f"Failed: got {kept}, {calls}"
+            kept.pop()[1]()
+        finally:
+            channel_unregister(channel)
+    assert calls == ["x", "y"], f"Failed: got {calls}"
+    print("  ✓ A channel's input too")
+
+    print()
+
+def test_run_hands_over_a_timer():
+    print("Testing input-map's delayed fires handed to input_map_run...")
+
+    calls = []
+    fired = ("fired", lambda: calls.append("fired"))
+    noop = ("", lambda: None)
+    # (case, map, inputs, wait past the fire)
+    cases = [
+        ("Delayed combo", {"pop": fired, "pop cluck": noop}, ["pop"], "400ms"),
+        ("Debounced stop", {"hiss": noop, "hiss_stop:db_100": fired}, ["hiss", "hiss_stop"], "200ms"),
+        ("Dur stage", {"hiss:dur>=100": fired}, ["hiss"], "200ms"),
+    ]
+    for case, config, inputs, wait in cases:
+        calls.clear()
+        with _jobs_kept(inputs_here=True) as kept:
+            input_map, printed = _load(config)
+            _assert_clean(printed)
+            for name in inputs:
+                input_map.execute(name)
+            actions.sleep(wait)
+            assert [source for source, _ in kept] == ["timer"] and calls == [], \
+                f"Failed: {case}: got {kept}, {calls}"
+            kept.pop()[1]()
+        assert calls == ["fired"], f"Failed: {case}: got {calls}"
+        print(f"  ✓ {case}: a \"timer\" job, and the binding runs when it does")
+
+    print()
+
+def test_run_cancel_holds_while_a_timer_waits():
+    print("Testing a combo's timer cancelled after cron fired it...")
+
+    calls = []
+    with _jobs_kept(inputs_here=True) as kept:
+        input_map, _ = _load({
+            "pop": ("pop", lambda: calls.append("pop")),
+            "pop cluck": ("pop cluck", lambda: calls.append("pop cluck")),
+            "pop cluck pop": ("all", lambda: calls.append("all")),
+        })
+        input_map.execute("pop")
+        actions.sleep("400ms")
+        assert len(kept) == 1, f"Failed: got {kept}"
+        stale = kept.pop()[1]
+        # Its job hasn't run yet: this input cancels it, and waits on its own
+        input_map.execute("cluck")
+        stale()
+        assert calls == [], f"Failed: the cancelled timer fired, got {calls}"
+        print("  ✓ The cancelled timer's job does nothing")
+        actions.sleep("400ms")
+        assert len(kept) == 1, f"Failed: got {kept}"
+        kept.pop()[1]()
+    assert calls == ["pop cluck"], f"Failed: got {calls}"
+    print("  ✓ The newer timer fires")
+
+    print()
+
+def test_lock_mode_switch_from_a_binding():
+    print("Testing a binding switching modes while another thread handles an input...")
+
+    channel = "_test_lock_switch"
+    entered, go, switched = threading.Event(), threading.Event(), threading.Event()
+    heard = []
+
+    def switch():
+        entered.set()
+        go.wait(2)
+        channel_mode_set(channel, "other")
+        switched.set()
+
+    config = {
+        "default": {"pop": ("switch", switch), "hiss": ("", lambda: heard.append("default"))},
+        "other": {"pop": ("", lambda: None), "hiss": ("", lambda: heard.append("other"))},
+    }
+    with _jobs_here():
+        channel_register(channel, config)
+        try:
+            popping = threading.Thread(target=lambda: channel_handle(channel, "pop"), daemon=True)
+            popping.start()
+            assert entered.wait(2), "Failed: the binding never ran"
+            hissing = threading.Thread(target=lambda: channel_handle(channel, "hiss"), daemon=True)
+            hissing.start()
+            hissing.join(2)
+            assert not hissing.is_alive(), "Failed: the input waited on the binding"
+            assert heard == ["default"], f"Failed: got {heard}"
+            print("  ✓ Another thread's input runs while a binding does")
+
+            go.set()
+            popping.join(2)
+            assert switched.is_set() and not popping.is_alive(), "Failed: the switch never returned"
+            assert channel_mode_get(channel) == "other", f"Failed: got {channel_mode_get(channel)}"
+            channel_handle(channel, "hiss")
+            assert heard == ["default", "other"], f"Failed: got {heard}"
+            print("  ✓ The binding's mode switch goes through, and the next input reads it")
+        finally:
+            go.set()
+            channel_unregister(channel)
+
+    print()
+
+def test_lock_lookup_reads_one_mode():
+    print("Testing lookups beside mode switches on another thread...")
+
+    channel = "_test_lock_lookup"
+    rounds = 300
+    bound, heard, errors = [], [], []
+
+    def hiss(mode):
+        return (mode, lambda: bound.append(mode))
+    config = {
+        "a": {"pop": ("", lambda: channel_mode_cycle(channel)), "hiss": hiss("a")},
+        "b": {"pop": ("", lambda: channel_mode_cycle(channel)), "hiss": hiss("b")},
+    }
+
+    def on_event(event):
+        if event.type == "input" and event.input == "hiss":
+            heard.append((event.label, event.mode))
+
+    def many(name):
+        try:
+            for _ in range(rounds):
+                channel_handle(channel, name)
+        except Exception as e:
+            errors.append(f"{type(e).__name__}: {e}")
+
+    with _jobs_here():
+        channel_register(channel, config)
+        channel_event_register(channel, on_event)
+        try:
+            threads = [threading.Thread(target=many, args=(name,), daemon=True) for name in ("pop", "hiss")]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(10)
+            assert not any(t.is_alive() for t in threads), "Failed: a thread never finished"
+        finally:
+            channel_event_unregister(channel, on_event)
+            channel_unregister(channel)
+    assert errors == [], f"Failed: got {errors}"
+    assert len(heard) == rounds and all(label == mode for label, mode in heard), \
+        f"Failed: a lookup read two modes, got {[h for h in heard if h[0] != h[1]][:5]}"
+    assert bound == [label for label, _ in heard], "Failed: bindings and events differ"
+    print(f"  ✓ {rounds} lookups each read one mode, beside {rounds} switches")
 
     print()
 
@@ -2810,6 +2990,12 @@ def test_variable_action_type_error_runs_once():
     print()
 
 def run_tests():
+    # Jobs run in place, as input_map_run's default does, whatever a package
+    # overrides it with
+    with _jobs_here():
+        _run_tests()
+
+def _run_tests():
     print("="* 50)
     print("Running Input Map Tests")
     print("=" * 50)
@@ -2958,9 +3144,15 @@ def run_tests():
     # Async def bindings
     test_async_bindings()
     test_async_plain_result_untouched()
-    test_binding_goes_through_run_binding()
     test_async_default_runner()
     test_variable_action_type_error_runs_once()
+
+    # input_map_run and the lock
+    test_run_hands_over_an_input()
+    test_run_hands_over_a_timer()
+    test_run_cancel_holds_while_a_timer_waits()
+    test_lock_mode_switch_from_a_binding()
+    test_lock_lookup_reads_one_mode()
 
     failed = run_key_behavior_tests()
     bench()
