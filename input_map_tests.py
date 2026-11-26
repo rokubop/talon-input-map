@@ -2721,9 +2721,19 @@ def _handed_off():
 @contextlib.contextmanager
 def _jobs_here():
     """input_map_run's default, whatever a package overrides it with: each
-    job runs where it's handed over"""
+    job runs where it's handed over. Never from inside itself, as Talon
+    never calls an action from inside itself"""
+    running = threading.local()
+    def run(job, source):
+        if getattr(running, "on", False):
+            raise RuntimeError('Cannot recursively call action: "user.input_map_run"')
+        running.on = True
+        try:
+            job()
+        finally:
+            running.on = False
     saved = input_map_parse._run_job
-    input_map_parse._run_job = lambda job, source: job()
+    input_map_parse._run_job = run
     try:
         yield
     finally:

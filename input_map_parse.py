@@ -418,7 +418,9 @@ def key_options(key: str) -> dict:
 # step, so any lookup that finds a fire overdue, due before its own time,
 # runs that fire's lookup first, in deadline order. The next input never
 # cancels a fire that was due before it arrived, nor joins it into a combo.
-# The bindings a fire fires are a "timer" job.
+# The bindings a fire fires are a "timer" job. One found overdue inside a job
+# already running, an input's, runs its bindings in that job, first: Talon
+# never calls an action from inside itself, so it can't be a job of its own.
 
 state_lock = threading.RLock()
 _local = threading.local()
@@ -432,7 +434,16 @@ _cron_cancel = lambda job: cron.cancel(job)
 def run_job(job, source: str):
     """`job` through `input_map_run`: "input" for a handle call, "timer" for
     a delayed fire of input-map's own"""
-    _run_job(job, source)
+    _run_job(lambda: _as_job(job), source)
+
+def _as_job(job):
+    """`job()`, on whatever thread runs it, marked as a job running there"""
+    was = getattr(_local, "job", False)
+    _local.job = True
+    try:
+        job()
+    finally:
+        _local.job = was
 
 def now() -> float:
     """The time of what's looked up on this thread: an input's arrival, a
@@ -536,7 +547,8 @@ def _due(timer):
 def _run_overdue(at: float):
     """Under the lock: the lookup of each fire due by `at`, in deadline
     order, each timed at its deadline. Its bindings go out as a "timer"
-    job once the lock is let go, before the rest of what's looked up."""
+    job once the lock is let go, before the rest of what's looked up.
+    Inside a job already running they run in it, first."""
     while _timers and _timers[0].deadline <= at:
         timer = heapq.heappop(_timers)
         if timer.cancelled:
@@ -550,7 +562,7 @@ def _run_overdue(at: float):
             print(f"input_map: a delayed fire raised:\n{traceback.format_exc()}")
         finally:
             _local.fires, _local.at = before
-        if fires and timer.fires_bindings:
+        if fires and timer.fires_bindings and not getattr(_local, "job", False):
             fire(lambda fires=fires: run_job(lambda: _run_fires(fires), "timer"))
         else:
             for call in fires:
